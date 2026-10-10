@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { rewriteHTML } from './rewriting/html.mjs';
 import { rewriteCSS } from './rewriting/css.mjs';
 import { rewriteJS } from './rewriting/javascript.mjs';
+import { encodeURL } from '../shared/url.mjs';
 const cache = new Map(); let cacheBytes = 0;
 export function rewrite({ kind, source, url, debug, sourceMaps, worker }) {
   if (kind === 'html') return rewriteHTML(source, url, { debug, sourceMaps });
@@ -12,7 +13,11 @@ export function rewrite({ kind, source, url, debug, sourceMaps, worker }) {
   if (sourceMaps && result.map) code += `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(result.map)).toString('base64')}`;
   if (worker) {
     const config = JSON.stringify({ url, base: url, worker: true }).replaceAll('<', '\\u003c');
-    code = worker === 'module' ? `import '/worker-runtime.js';globalThis.__rax.initialize(${config});\n${code}` : `globalThis.__RAX_CONFIG__=${config};importScripts('/worker-runtime.js');\n${code}`;
+    if (worker === 'module') {
+      const entry = new URL(url); entry.searchParams.set('__rax_worker', 'body');
+      // Initialize before evaluating static dependencies; those modules may immediately use browser APIs.
+      code = `import '/worker-runtime.js';globalThis.__rax.initialize(${config});await import(${JSON.stringify(encodeURL(entry.href, url))});`;
+    } else code = `globalThis.__RAX_CONFIG__=${config};importScripts('/worker-runtime.js');\n${code}`;
   }
   return { code, warnings: [] };
 }
@@ -36,6 +41,7 @@ export function startTransformer(port = 3032, token = process.env.RAX_TRANSFORM_
       res.writeHead(422, { 'content-type': 'application/json' }).end(JSON.stringify({ error: `Transformation failed: ${error.message.slice(0, 160)}` }));
     }
   });
+  server.requestTimeout = 30000; server.headersTimeout = 10000; server.keepAliveTimeout = 5000;
   server.listen(port, '127.0.0.1', () => console.log(`Raxcalite transformer: 127.0.0.1:${port}`));
   return server;
 }

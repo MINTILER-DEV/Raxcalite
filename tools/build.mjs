@@ -2,8 +2,8 @@ import { build as viteBuild } from 'vite';
 import { build } from 'esbuild';
 import { writeFile } from 'node:fs/promises';
 await viteBuild({ root: 'frontend', build: { outDir: 'dist', emptyOutDir: true }, base: '/' });
-await build({ entryPoints: ['frontend/src/runtime/index.ts'], bundle: true, format: 'iife', target: 'es2022', outfile: 'frontend/dist/runtime.js', sourcemap: false });
-await build({ entryPoints: ['frontend/src/runtime/index.ts'], bundle: true, format: 'iife', target: 'es2022', outfile: 'frontend/dist/worker-runtime.js' });
+await build({ entryPoints: ['frontend/src/runtime/index.ts'], bundle: true, format: 'iife', target: 'es2022', outfile: 'frontend/dist/runtime.js', minify: true });
+await build({ entryPoints: ['frontend/src/runtime/worker.ts'], bundle: true, format: 'iife', target: 'es2022', outfile: 'frontend/dist/worker-runtime.js', minify: true });
 await build({ entryPoints: ['frontend/src/service-worker/index.ts'], bundle: true, format: 'iife', target: 'es2022', outfile: 'frontend/dist/sw.js' });
 // Runtime configuration supports reverse proxies with independently hosted content origins.
 if (process.env.RAX_PROXY_ORIGIN) {

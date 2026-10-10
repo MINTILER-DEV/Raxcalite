@@ -27,7 +27,7 @@ test('AST respects shadowing and transforms assignments, computed globals, impor
   const source = 'const a=location.href;window["location"]="/a";function f(location){return location.href}import x from "./a.js";const b=import("./b.js");const u=import.meta.url;';
   const code = rewriteJS(source, 'https://example.com/dir/main.js').code;
   assert.match(code, /__rax.location.href/); assert.match(code, /return location.href/);
-  assert.match(code, /__rax.location =/); assert.match(code, /\/dir\/a.js/); assert.match(code, /import\(__rax.map/);
+  assert.match(code, /__rax.location =/); assert.match(code, /\/dir\/a.js/); assert.match(code, /import\(__rax.mapImport/);
   assert.match(code, /https:\/\/example.com\/dir\/main.js/);
 });
 test('modern scripts and source maps preserve a debuggable AST', () => {

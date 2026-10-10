@@ -5,12 +5,27 @@ export function installNetwork() {
   } });
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const original = new native.Request(input instanceof native.Request ? input : new URL(String(input), currentURL()), init);
+    if (['blob:', 'data:'].includes(new URL(original.url).protocol)) return native.fetch(original);
+    if (original.mode === 'no-cors' && new URL(original.url).origin !== new URL(currentURL()).origin) {
+      report('network', 'Cross-origin no-cors fetch is unsupported; opaque response virtualization is incomplete');
+      throw new TypeError('Cross-origin no-cors fetch is unsupported');
+    }
     const headers = new Headers(original.headers);
     headers.set('x-rax-origin', new URL(currentURL()).origin);
     headers.set('x-rax-credentials', original.credentials);
     headers.set('x-rax-mode', original.mode);
-    const mapped = new native.Request(map(original.url), original);
-    try { return await native.fetch(new native.Request(mapped, { headers, credentials: 'include', mode: 'same-origin' })); }
+    // Reconstructing a Request from its .body stream forces HTTP/2 streaming uploads in Chromium.
+    // Buffer bounded uploads so normal form/text bodies work through an HTTP/1 local proxy too.
+    let body: ArrayBuffer | undefined;
+    if (original.body) { body = await original.arrayBuffer(); if (body.byteLength > 8 * 1024 * 1024) throw new TypeError('Request body exceeds 8 MiB'); }
+    const mapped = new native.Request(map(original.url), { method: original.method, headers, body,
+      credentials: 'include', mode: 'same-origin', signal: original.signal, redirect: original.redirect,
+      cache: original.cache, keepalive: original.keepalive, referrerPolicy: original.referrerPolicy });
+    try {
+      const response = await native.fetch(mapped);
+      if (response.headers.get('x-rax-cors-error')) throw new TypeError('Upstream CORS policy rejected the virtual origin');
+      return response;
+    }
     catch (error) { report('network', 'Fetch failed'); throw error; }
   };
   for (const prototype of [Response.prototype, native.Request.prototype]) {
@@ -24,7 +39,7 @@ export function installNetwork() {
       this.setRequestHeader('x-rax-origin', new URL(currentURL()).origin);
       this.setRequestHeader('x-rax-mode', 'cors');
     };
-    const send = native.XMLHttpRequest.prototype.send;
+    const send = native.XMLHttpRequest.prototype.send as (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) => void;
     native.XMLHttpRequest.prototype.send = function(body) {
       this.setRequestHeader('x-rax-credentials', this.withCredentials ? 'include' : 'same-origin'); send.call(this, body);
     };

@@ -1,9 +1,15 @@
 import { map, unmap, baseURL, report } from '../core/context';
+import { rewriteStyle, installCSS } from './css';
+import parseSrcset from 'parse-srcset';
 const urls = new Set(['href', 'src', 'action', 'formaction', 'poster', 'data', 'background', 'xlink:href']);
 export function installDOM() {
+  installCSS();
+  const srcset = (value: string) => parseSrcset(value).map(s => `${map(s.url)}${s.w ? ` ${s.w}w` : s.d ? ` ${s.d}x` : ''}`).join(', ');
   const setAttribute = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function(name, value) {
     if (urls.has(name.toLowerCase()) && value && !value.startsWith('#')) { try { value = map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
+    else if (['srcset', 'imagesrcset'].includes(name.toLowerCase())) value = srcset(value);
+    else if (name.toLowerCase() === 'style') value = rewriteStyle(value, 'declarationList');
     setAttribute.call(this, name, value);
   };
   const getAttribute = Element.prototype.getAttribute;
@@ -32,7 +38,16 @@ export function installDOM() {
       const value = getAttribute.call(element, name);
       if (value && !value.startsWith('#')) { try { setAttribute.call(element, name, map(value)); } catch { report('dom', 'Failed to map an inserted resource'); } }
     }
+    for (const element of [node, ...node.querySelectorAll('*')]) {
+      for (const name of ['srcset', 'imagesrcset']) { const value = getAttribute.call(element, name); if (value) setAttribute.call(element, name, srcset(value)); }
+      const style = getAttribute.call(element, 'style'); if (style) setAttribute.call(element, 'style', rewriteStyle(style, 'declarationList'));
+      if (element instanceof HTMLStyleElement && element.textContent) { const rewritten = rewriteStyle(element.textContent); if (rewritten !== element.textContent) element.textContent = rewritten; }
+    }
   };
+  for (const Constructor of [HTMLImageElement, HTMLSourceElement]) {
+    const descriptor = Object.getOwnPropertyDescriptor(Constructor.prototype, 'srcset')!;
+    Object.defineProperty(Constructor.prototype, 'srcset', { ...descriptor, set(value) { descriptor.set!.call(this, srcset(String(value))); } });
+  }
   for (const key of ['innerHTML', 'outerHTML'] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, key)!;
     Object.defineProperty(Element.prototype, key, { ...descriptor, set(value: string) {

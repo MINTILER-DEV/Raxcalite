@@ -20,4 +20,9 @@ export function installNavigation() {
   new MutationObserver(notify).observe(document.querySelector('title') || document.documentElement, { childList: true, subtree: true, characterData: true });
   addEventListener('error', e => report('javascript', e.message || 'Resource failed to load'));
   addEventListener('unhandledrejection', () => report('javascript', 'Unhandled promise rejection'));
+  window.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l' && parent !== window) {
+      event.preventDefault(); native.postMessage!.call(parent, { type: 'rax:focus-address' }, '*');
+    }
+  });
 }

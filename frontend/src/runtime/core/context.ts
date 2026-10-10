@@ -1,5 +1,5 @@
 import { encodeURL, decodeURL } from '../../../../shared/url.mjs';
-export interface RuntimeConfig { url: string; base: string; worker?: boolean; debug?: boolean }
+export interface RuntimeConfig { url: string; base: string; worker?: boolean; debug?: boolean; warnings?: string[] }
 export interface Diagnostic { subsystem: string; message: string; time: number }
 export const root = globalThis as typeof globalThis & { __RAX_CONFIG__?: RuntimeConfig; __rax: any };
 declare global { var __rax: any; }

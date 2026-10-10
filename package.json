@@ -14,12 +14,14 @@
     "@babel/parser": "^7.28.0",
     "@babel/traverse": "^7.28.0",
     "@babel/types": "^7.28.0",
+    "css-tree": "^3.2.1",
     "lightningcss": "^1.30.0",
-    "parse5": "^8.0.0",
-    "parse-srcset": "^1.0.2"
+    "parse-srcset": "^1.0.2",
+    "parse5": "^8.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
+    "@types/css-tree": "^3.2.0",
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.9.0",

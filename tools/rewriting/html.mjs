@@ -66,7 +66,7 @@ export function rewriteHTML(source, url, options = {}) {
   });
   let head;
   visit(document, node => { if (node.tagName === 'head') head = node; });
-  const config = JSON.stringify({ url, base, debug: !!options.debug }).replaceAll('<', '\\u003c');
+  const config = JSON.stringify({ url, base, debug: !!options.debug, warnings }).replaceAll('<', '\\u003c');
   const bootstrap = parseFragment(`<script>globalThis.__RAX_CONFIG__=${config}</script><script src="/runtime.js"></script>`).childNodes;
   for (const child of bootstrap) child.parentNode = head;
   head.childNodes.unshift(...bootstrap);

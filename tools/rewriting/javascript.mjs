@@ -11,7 +11,7 @@ export function rewriteJS(source, url, options = {}) {
   const ast = parse(source, { sourceType: 'unambiguous', allowReturnOutsideFunction: !!options.inlineHandler,
     plugins: ['importAttributes'], createImportExpressions: true });
   let changed = false;
-  const map = value => encodeURL(value, url);
+  const map = value => /^(?:[./]|[a-z][a-z\d+.-]*:)/i.test(value) ? encodeURL(value, url) : value;
   traverse(ast, {
     CallExpression(path) {
       const callee = path.node.callee;
@@ -38,7 +38,7 @@ export function rewriteJS(source, url, options = {}) {
     ExportNamedDeclaration(path) { if (path.node.source) { path.node.source.value = map(path.node.source.value); changed = true; } },
     ExportAllDeclaration(path) { path.node.source.value = map(path.node.source.value); changed = true; },
     ImportExpression(path) {
-      path.node.source = t.callExpression(runtime('map'), [path.node.source, t.stringLiteral(url)]); changed = true;
+      path.node.source = t.callExpression(runtime('mapImport'), [path.node.source, t.stringLiteral(url)]); changed = true;
       path.skip();
     }
   });
