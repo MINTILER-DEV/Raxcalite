@@ -11,7 +11,7 @@ export function startTransformer(port = 3032, token = process.env.RAX_TRANSFORM_
     if (req.headers.authorization !== `Bearer ${token}`) { res.writeHead(403).end(); return; }
     if (req.url === '/health' && req.method === 'GET') { res.writeHead(pool.closed ? 503 : 200).end('ready'); return; }
     if (req.url === '/metrics' && req.method === 'GET') {
-      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...stats, cacheBytes, cacheEntries: cache.size, active: pool.active, queued: pool.queue.length, rss: process.memoryUsage().rss })); return;
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...stats, cacheBytes, cacheEntries: cache.size, active: pool.active, queued: pool.queue.length, rss: process.memoryUsage().rss, parserRss:[...pool.slots].reduce((sum,slot)=>sum+(slot.rss||0),0) })); return;
     }
     if (req.method !== 'POST' || req.url !== '/') { res.writeHead(404).end(); return; }
     stats.requests++;

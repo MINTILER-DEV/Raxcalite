@@ -1,6 +1,5 @@
-import { parentPort } from 'node:worker_threads';
 import { rewrite } from './rewrite.mjs';
-parentPort.on('message', input => {
-  try { parentPort.postMessage({ result: rewrite(input) }); }
-  catch { parentPort.postMessage({ error: 'Parser rejected the resource' }); }
+process.on('message', input => {
+  try { process.send({ result: rewrite(input), rss:process.memoryUsage().rss }); }
+  catch { process.send({ error: 'Parser rejected the resource' }); }
 });

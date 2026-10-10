@@ -1,4 +1,4 @@
-import { Worker } from 'node:worker_threads';
+import { fork } from 'node:child_process';
 // Parsing runs outside the HTTP event loop. A deadline kills the entire isolate,
 // including a parser that never yields. Limits also bound queued source buffers.
 export class TransformPool {
@@ -22,14 +22,14 @@ export class TransformPool {
     while (this.queue.length && !this.closed) {
       let slot = [...this.slots].find(s => !s.task);
       if (!slot && this.slots.size < this.size) {
-        slot = { worker: new Worker(this.workerURL, { resourceLimits: { maxOldGenerationSizeMb: 192, maxYoungGenerationSizeMb: 32, stackSizeMb: 4 } }) };
+        slot = { worker: fork(this.workerURL, [], { execArgv:['--max-old-space-size=192'], stdio:['ignore','ignore','ignore','ipc'] }) };
         this.slots.add(slot);
-        slot.worker.on('message', message => { if (slot.task) this.finish(slot.task, message.error ? new Error(message.error) : null, message.result); });
+        slot.worker.on('message', message => { slot.rss=message.rss||0; if (slot.task) this.finish(slot.task, message.error ? new Error(message.error) : null, message.result); });
         slot.worker.on('error', () => { if (slot.task) this.finish(slot.task, new Error('Parser worker failed')); });
         slot.worker.on('exit', () => { this.slots.delete(slot); if (slot.task) this.finish(slot.task, new Error('Parser worker exited')); this.dispatch(); });
       }
       if (!slot) return;
-      const task = this.queue.shift(); slot.task = task; task.slot = slot; slot.worker.postMessage(task.input);
+      const task = this.queue.shift(); slot.task = task; task.slot = slot; slot.worker.send(task.input);
     }
   }
   finish(task, error, result) {
@@ -37,7 +37,7 @@ export class TransformPool {
     clearTimeout(task.timer); task.signal?.removeEventListener('abort', task.cancel);
     if (task.slot) {
       task.slot.task = null;
-      if (error) { this.slots.delete(task.slot); void task.slot.worker.terminate(); }
+      if (error) { this.slots.delete(task.slot); task.slot.worker.kill('SIGKILL'); }
     } else this.queue = this.queue.filter(t => t !== task);
     if (error) task.reject(error); else task.resolve(result);
     this.dispatch();
@@ -45,6 +45,6 @@ export class TransformPool {
   close() {
     this.closed = true;
     for (const task of [...this.queue, ...[...this.slots].map(s => s.task).filter(Boolean)]) this.finish(task, new Error('Transformer stopped'));
-    for (const slot of this.slots) void slot.worker.terminate(); this.slots.clear();
+    for (const slot of this.slots) slot.worker.kill('SIGKILL'); this.slots.clear();
   }
 }
