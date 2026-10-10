@@ -9,7 +9,8 @@
     "test:e2e": "playwright test",
     "bench": "node benchmarks/rewrite.mjs",
     "dev:shared": "node tools/start.mjs --shared",
-    "test:isolation": "playwright test -c playwright.isolation.config.ts"
+    "test:isolation": "playwright test -c playwright.isolation.config.ts",
+    "test:https": "playwright test -c playwright.https.config.ts"
   },
   "dependencies": {
     "@babel/generator": "^7.28.0",

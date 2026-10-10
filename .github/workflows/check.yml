@@ -49,6 +49,7 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
       - run: npm run test:isolation
+      - run: npm run test:https
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
