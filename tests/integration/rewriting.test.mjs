@@ -80,3 +80,8 @@ test('AST preserves helper collisions, destructured location, optional calls, ar
   assert.deepEqual(Array.from(context.result), ['https://example.com/virtual', 'author', 'lexical', 1]);
   assert.equal(calls[0][0], virtual.href); assert.equal(calls.length, 2);
 });
+
+test('component data and unresolved template bindings remain authored while object resources map',()=>{
+ const result=rewriteHTML('<fixture-component data="[[payload]]"></fixture-component><template><img src="{{image}}" srcset="[[images]]"><a href="/item/{{id}}"></a></template><object data="/file.bin"></object>','https://example.com/');
+ assert.match(result.code, /data="\[\[payload\]\]"/);assert.match(result.code,/src="\{\{image\}\}"/);assert.match(result.code,/srcset="\[\[images\]\]"/);assert.match(result.code,/href="\/item\/\{\{id\}\}"/);assert.match(result.code,/data="\/p\/[^" ]+\/file.bin"/);
+});

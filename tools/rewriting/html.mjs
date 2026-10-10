@@ -3,6 +3,7 @@ import parseSrcset from 'parse-srcset';
 import { encodeURL, resourceCredentials } from '../../shared/url.mjs';
 import { rewriteCSSResult } from './css.mjs';
 import { rewriteJS } from './javascript.mjs';
+import { isURLAttribute, isTemplateBinding } from '../../shared/dom-attributes.mjs';
 
 export function rewriteHTML(source, url, options = {}) {
   const document = parse(source);
@@ -14,7 +15,7 @@ export function rewriteHTML(source, url, options = {}) {
   visit(document, node => {
     if (!foundBase && node.tagName === 'base') {
       const href = node.attrs.find(a => a.name === 'href');
-      if (href) { base = new URL(href.value, url).href; foundBase = true; }
+      if (href && !isTemplateBinding(href.value)) { base = new URL(href.value, url).href; foundBase = true; }
     }
   });
   const safe = (fn, subsystem) => { try { return fn(); } catch (error) { warnings.push(`${subsystem}: ${error.message.slice(0, 160)}`); return null; } };
@@ -26,10 +27,10 @@ export function rewriteHTML(source, url, options = {}) {
     if(options.isolation && node.tagName==='script' && node.attrs.some(a=>a.name==='type' && a.value==='module'))original.crossorigin=cors?.value??'';
     for (const attr of node.attrs) {
       const authored = attr.value;
-      if (['href', 'src', 'action', 'formaction', 'poster', 'data', 'xlink:href', 'background', 'cite'].includes(attr.name) && attr.value && !attr.value.startsWith('#')) {
+      if (isURLAttribute(node.tagName,attr.name) && attr.value && !attr.value.startsWith('#') && !isTemplateBinding(attr.value)) {
         attr.value = safe(() => encodeURL(attr.value, base), 'url') ?? attr.value;
         if(corsMode && ['src','href'].includes(attr.name))attr.value=resourceCredentials(attr.value,corsMode);
-      } else if (attr.name === 'srcset' || attr.name === 'imagesrcset') {
+      } else if ((attr.name === 'srcset' || attr.name === 'imagesrcset') && !isTemplateBinding(attr.value)) {
         attr.value = safe(() => parseSrcset(attr.value).map(s => `${encodeURL(s.url, base)}${s.w ? ` ${s.w}w` : s.d ? ` ${s.d}x` : ''}`).join(', '), 'srcset') ?? attr.value;
       } else if (attr.name === 'style') attr.value = safe(() => rewriteCSS(attr.value, base, true), 'css') ?? attr.value;
       else if (attr.name.startsWith('on')) attr.value = safe(() => rewriteJS(attr.value, base, { inlineHandler: true }).code, 'javascript') ?? attr.value;

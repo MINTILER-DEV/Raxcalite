@@ -2,10 +2,12 @@ import { runtime, map, unmap, baseURL, report, config } from '../core/context';
 import { rewriteStyle, installCSS } from './css';
 import parseSrcset from 'parse-srcset';
 import { resourceCredentials } from '../../../../shared/url.mjs';
+import { isURLAttribute, isTemplateBinding } from '../../../../shared/dom-attributes.mjs';
 const urls = new Set(['href', 'src', 'action', 'formaction', 'poster', 'data', 'background', 'xlink:href']);
 export function installDOM() {
   installCSS();
-  const srcset = (value: string) => parseSrcset(value).map(s => `${map(s.url)}${s.w ? ` ${s.w}w` : s.d ? ` ${s.d}x` : ''}`).join(', ');
+  const domString=(value:any)=>{if(typeof value==='symbol')throw new TypeError('Cannot convert a Symbol value to a string');return String(value);};
+  const srcset = (value: string) => isTemplateBinding(value)?value:parseSrcset(value).map(s => `${map(s.url)}${s.w ? ` ${s.w}w` : s.d ? ` ${s.d}x` : ''}`).join(', ');
   const setAttribute = Element.prototype.setAttribute;
   const getAttribute = Element.prototype.getAttribute;
   const authored = new WeakMap<Element, Record<string, string>>();
@@ -15,13 +17,16 @@ export function installDOM() {
     return values!;
   };
   const resource = (element:Element, value:string) => {
+    if(isTemplateBinding(value))return value;
     const mapped=map(value), cors=Object.hasOwn(originals(element),'crossorigin')?originals(element).crossorigin:getAttribute.call(element,'crossorigin');
     return ((cors!==null && cors!==undefined) || (element instanceof HTMLScriptElement && element.type==='module')) ? resourceCredentials(mapped,cors==='use-credentials'?'include':'same-origin') : mapped;
   };
   Element.prototype.setAttribute = function(name, value) {
-    const original=String(value);
-    if (urls.has(name.toLowerCase()) && value && !value.startsWith('#')) { try { value = ['src','href'].includes(name.toLowerCase())?resource(this,value):map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
-    else if (['srcset', 'imagesrcset'].includes(name.toLowerCase())) value = srcset(value);
+    name=domString(name);
+    const original=domString(value);
+    value=original;
+    if (isURLAttribute(this.localName,name.toLowerCase()) && value && !value.startsWith('#') && !isTemplateBinding(value)) { try { value = ['src','href'].includes(name.toLowerCase())?resource(this,value):map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
+    else if (['srcset', 'imagesrcset'].includes(name.toLowerCase()) && !isTemplateBinding(value)) value = srcset(value);
     else if (name.toLowerCase() === 'style') value = rewriteStyle(value, 'declarationList');
     else if (name.toLowerCase().startsWith('on')) value = runtime.rewriteScript(String(value));
     if(String(value)!==original)originals(this)[name.toLowerCase()]=original;
@@ -30,7 +35,8 @@ export function installDOM() {
   };
   const setAttributeNS = Element.prototype.setAttributeNS;
   Element.prototype.setAttributeNS = function(namespace, name, value) {
-    if (urls.has(name.toLowerCase()) || (namespace === 'http://www.w3.org/1999/xlink' && name.split(':').pop() === 'href')) {
+    name=domString(name);value=domString(value);
+    if ((isURLAttribute(this.localName,name.toLowerCase()) || (namespace === 'http://www.w3.org/1999/xlink' && name.split(':').pop() === 'href')) && !isTemplateBinding(value)) {
       originals(this)[name.toLowerCase()] = String(value);value = value && !value.startsWith('#') ? map(value) : value;
     }
     setAttributeNS.call(this, namespace, name, value);
@@ -45,7 +51,7 @@ export function installDOM() {
   Element.prototype.getAttribute = function(name) {
     const value = getAttribute.call(this, name);
     if (value !== null && Object.hasOwn(originals(this), name.toLowerCase())) return originals(this)[name.toLowerCase()];
-    if (value && urls.has(name.toLowerCase()) && value.startsWith('/p/')) return unmap(value);
+    if (value && isURLAttribute(this.localName,name.toLowerCase()) && value.startsWith('/p/')) return unmap(value);
     return value;
   };
   const pairs: [any, string[]][] = [
@@ -59,7 +65,7 @@ export function installDOM() {
     if (!descriptor?.get || !descriptor.set) continue;
     Object.defineProperty(Constructor.prototype, key, { ...descriptor,
       get() { return unmap(descriptor.get!.call(this)); },
-      set(value) { originals(this)[key.toLowerCase()] = String(value); descriptor.set!.call(this, value ? ['src','href'].includes(key)?resource(this,String(value)):map(value) : value); }
+      set(value) { originals(this)[key.toLowerCase()] = String(value); descriptor.set!.call(this, value && !isTemplateBinding(value) ? ['src','href'].includes(key)?resource(this,String(value)):map(value) : value); }
     });
   }
   const fixTree = (node: Node) => {
@@ -67,10 +73,10 @@ export function installDOM() {
     if (!(node instanceof Element)) return;
     for (const element of [node, ...node.querySelectorAll('*')]) for (const name of urls) {
       const value = getAttribute.call(element, name);
-      if (value && !value.startsWith('#')) { try { const mapped = ['src','href'].includes(name)?resource(element,value):map(value); if (mapped !== value) { if (!Object.hasOwn(originals(element), name)) originals(element)[name] = value; setAttribute.call(element, name, mapped); } } catch { report('dom', 'Failed to map an inserted resource'); } }
+      if (isURLAttribute(element.localName,name) && value && !value.startsWith('#') && !isTemplateBinding(value)) { try { const mapped = ['src','href'].includes(name)?resource(element,value):map(value); if (mapped !== value) { if (!Object.hasOwn(originals(element), name)) originals(element)[name] = value; setAttribute.call(element, name, mapped); } } catch { report('dom', 'Failed to map an inserted resource'); } }
     }
     for (const element of [node, ...node.querySelectorAll('*')]) {
-      for (const name of ['srcset', 'imagesrcset']) { const value = getAttribute.call(element, name); if (value) setAttribute.call(element, name, srcset(value)); }
+      for (const name of ['srcset', 'imagesrcset']) { const value = getAttribute.call(element, name); if (value && !isTemplateBinding(value)) setAttribute.call(element, name, srcset(value)); }
       const style = getAttribute.call(element, 'style'); if (style) setAttribute.call(element, 'style', rewriteStyle(style, 'declarationList'));
       if (element instanceof HTMLStyleElement && element.textContent) { const rewritten = rewriteStyle(element.textContent); if (rewritten !== element.textContent) element.textContent = rewritten; }
       if (element instanceof HTMLScriptElement) {
