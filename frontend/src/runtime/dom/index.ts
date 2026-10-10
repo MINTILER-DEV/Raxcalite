@@ -19,11 +19,13 @@ export function installDOM() {
     return ((cors!==null && cors!==undefined) || (element instanceof HTMLScriptElement && element.type==='module')) ? resourceCredentials(mapped,cors==='use-credentials'?'include':'same-origin') : mapped;
   };
   Element.prototype.setAttribute = function(name, value) {
-    originals(this)[name.toLowerCase()] = String(value);
+    const original=String(value);
     if (urls.has(name.toLowerCase()) && value && !value.startsWith('#')) { try { value = ['src','href'].includes(name.toLowerCase())?resource(this,value):map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
     else if (['srcset', 'imagesrcset'].includes(name.toLowerCase())) value = srcset(value);
     else if (name.toLowerCase() === 'style') value = rewriteStyle(value, 'declarationList');
     else if (name.toLowerCase().startsWith('on')) value = runtime.rewriteScript(String(value));
+    if(String(value)!==original)originals(this)[name.toLowerCase()]=original;
+    else delete originals(this)[name.toLowerCase()];
     setAttribute.call(this, name, value);
   };
   const setAttributeNS = Element.prototype.setAttributeNS;
