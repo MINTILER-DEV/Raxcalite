@@ -1,1 +1,8 @@
 local/
+node_modules/
+frontend/dist/
+target/
+test-results/
+playwright-report/
+.env
+*.log
