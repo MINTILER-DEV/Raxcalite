@@ -820,9 +820,7 @@ fn cookie_target(
     let target = Url::parse(value).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid cookie URL"))?;
     let referer = virtual_referrer(headers, &state.config)
         .or_else(|| {
-            if state.config.isolation_domain.is_none() {
-                return None;
-            }
+            state.config.isolation_domain.as_ref()?;
             let document = Url::parse(headers.get("x-rax-document")?.to_str().ok()?).ok()?;
             // Browser CORS requests always carry Origin. Same-origin requests may
             // suppress Referer; their custom document header still stays host-bound.

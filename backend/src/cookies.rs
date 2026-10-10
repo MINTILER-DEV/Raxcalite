@@ -51,6 +51,16 @@ pub fn insert(
         jar.remove(&domain, &path, &name);
     }
     let candidate = Cookie::parse(raw, url).map_err(|_| "Invalid cookie")?;
+    // Native cookie deletion is a successful no-op when the entry is absent.
+    // cookie_store::parse otherwise reports an already-expired insertion error.
+    if candidate.is_expired() {
+        jar.remove(
+            &candidate.domain.as_cow().unwrap_or_default(),
+            candidate.path.as_ref(),
+            candidate.name(),
+        );
+        return Ok(false);
+    }
     let exists = jar.iter_any().any(|c| {
         c.name() == candidate.name() && c.path == candidate.path && c.domain == candidate.domain
     });
@@ -155,6 +165,24 @@ mod tests {
         assert_eq!(jar.iter_unexpired().count(), 128);
         insert(&mut jar, "extra=; Max-Age=0; Path=/", &url, false).unwrap();
         assert_eq!(jar.iter_unexpired().count(), 127);
+    }
+    #[test]
+    fn expired_cookie_deletion_is_idempotent_for_existing_and_absent_entries() {
+        let url = Url::parse("https://www.example.com/").unwrap();
+        let mut jar = CookieStore::default();
+        let expired = "remote=; Domain=example.com; Path=/; Expires=Sun, 01 Feb 1970 06:00:00 GMT";
+        assert!(!insert(&mut jar, expired, &url, true).unwrap());
+        insert(
+            &mut jar,
+            "remote=present; Domain=example.com; Path=/",
+            &url,
+            true,
+        )
+        .unwrap();
+        assert_eq!(jar.iter_unexpired().count(), 1);
+        assert!(!insert(&mut jar, expired, &url, true).unwrap());
+        assert_eq!(jar.iter_unexpired().count(), 0);
+        assert!(!insert(&mut jar, expired, &url, true).unwrap());
     }
     #[test]
     fn rejects_public_suffix_and_http_only_path_overwrites() {
