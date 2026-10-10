@@ -14,6 +14,10 @@ sw.addEventListener('fetch', event => {
   if (url.origin !== sw.location.origin || event.request.method !== 'GET') return;
   // Proxy resources never enter a shared cache. Forward once without recursive fetch events.
   if (url.pathname.startsWith('/p/')) {
+    // Reissuing navigations through fetch loses their native destination/mode
+    // in some engines. Let the browser request the document directly so the
+    // backend can distinguish document rewriting from HTML-labeled API data.
+    if (event.request.mode === 'navigate') return;
     // Let native EventSource carry its internal Last-Event-ID on reconnect.
     // Reissuing the request through fetch can discard that browser-managed header.
     if (event.request.headers.get('accept')?.includes('text/event-stream')) return;

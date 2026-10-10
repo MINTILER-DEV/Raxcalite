@@ -18,6 +18,10 @@ test('caption and HTML data responses preserve their bytes instead of receiving 
   await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
   expect(expected).toMatchObject({parsed:'Caption & text',errors:0,html:'<section><a href="/next">Fragment</a></section>'});
   expect(await frame.evaluate(read)).toEqual(expected);
+  await frame.waitForFunction(()=>!!navigator.serviceWorker.controller);
+  const navigation=frame.waitForNavigation();await frame.evaluate(()=>location.reload());await navigation;
+  await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
+  expect(await frame.evaluate(read)).toEqual(expected);
 });
 
 test('media session artwork uses mapped resources and preserves native metadata behavior',async({page})=>{
