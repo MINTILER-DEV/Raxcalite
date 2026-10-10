@@ -18,8 +18,11 @@
     "@babel/traverse": "^7.28.0",
     "@babel/types": "^7.28.0",
     "@noble/hashes": "^2.4.0",
+    "acorn": "^8.19.0",
     "css-tree": "^3.2.1",
+    "eslint-scope": "^9.1.2",
     "lightningcss": "^1.30.0",
+    "magic-string": "^1.4.3",
     "parse-srcset": "^1.0.2",
     "parse5": "^8.0.0"
   },

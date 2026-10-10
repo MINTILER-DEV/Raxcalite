@@ -68,6 +68,7 @@ pub async fn proxy(State(state): State<AppState>, request: Request) -> Response 
     match do_proxy(state, request).await {
         Ok(res) => res,
         Err((code, message)) => {
+            tracing::debug!(status = %code, reason = %message, "Proxy request rejected");
             let cors = message.contains("CORS") || message.contains("same-origin request");
             let mut response = error(code, message);
             if cors {
@@ -132,11 +133,74 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         ));
     }
     let (parts, body) = request.into_parts();
-    let (id, session, fresh) = state
-        .sessions
-        .get(&parts.headers)
-        .await
-        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
+    let has_gateway_cookie = parts
+        .headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .any(|pair| pair.trim().starts_with("rax_session="))
+        });
+    // Native anonymous CORS loads (fonts, crossorigin scripts/styles/images)
+    // omit the gateway cookie. Serve only public upstream bytes in this path.
+    // The routing ID is not an authentication credential: this view has no jar,
+    // cannot issue a gateway cookie, and cannot read or persist private state.
+    let anonymous = state.config.isolation_domain.is_some()
+        && !has_gateway_cookie
+        && matches!(
+            parts.method,
+            axum::http::Method::GET | axum::http::Method::HEAD
+        )
+        && parts
+            .headers
+            .get("sec-fetch-mode")
+            .is_some_and(|v| v == "cors")
+        && parts.headers.get("sec-fetch-dest").is_some_and(|v| {
+            matches!(
+                v.to_str().unwrap_or(""),
+                "font" | "script" | "style" | "image"
+            )
+        })
+        && !parts
+            .headers
+            .keys()
+            .any(|name| name.as_str().starts_with("x-rax-"))
+        && !parts.headers.contains_key(header::AUTHORIZATION)
+        && worker_marker.is_none()
+        && source_marker.is_none()
+        && credentials_marker
+            .as_deref()
+            .is_none_or(|mode| matches!(mode, "same-origin" | "omit"));
+    let (id, session, fresh) = if anonymous {
+        let host = parts
+            .headers
+            .get(header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let public_id = host.split('-').next().unwrap_or("");
+        if public_id.len() != 24 || !public_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Invalid public resource route".into(),
+            ));
+        }
+        (
+            String::new(),
+            state
+                .sessions
+                .public_resource(public_id)
+                .await
+                .map_err(|e| (StatusCode::FORBIDDEN, e))?,
+            false,
+        )
+    } else {
+        state
+            .sessions
+            .get(&parts.headers)
+            .await
+            .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?
+    };
     if !session.lock().await.allow() {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
@@ -236,8 +300,26 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         .headers
         .get("x-rax-credentials")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or(credentials_marker.as_deref().unwrap_or("include"));
-    let credentials = mode != "omit" && (mode != "same-origin" || same_origin);
+        .unwrap_or(
+            credentials_marker.as_deref().unwrap_or(
+                if parts
+                    .headers
+                    .get("sec-fetch-dest")
+                    .is_some_and(|v| v == "font")
+                {
+                    "same-origin"
+                } else {
+                    "include"
+                },
+            ),
+        );
+    let credentials = !anonymous && mode != "omit" && (mode != "same-origin" || same_origin);
+    tracing::debug!(
+        anonymous,
+        credentials,
+        same_origin,
+        "Resolved upstream credential policy"
+    );
     let request_mode = parts
         .headers
         .get("x-rax-mode")
@@ -592,10 +674,11 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             .map_err(|_| fail("Transformable body deadline exceeded"))?
         {
             let chunk = chunk.map_err(|_| fail("Upstream body failed"))?;
-            if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
+            let body_limit = if kind == Some("js") { 16 } else { 4 } * 1024 * 1024;
+            if bytes.len() + chunk.len() > body_limit {
                 return Err((
                     StatusCode::PAYLOAD_TOO_LARGE,
-                    "Transformable response exceeds 4 MiB".into(),
+                    "Transformable response exceeds its decoded byte limit".into(),
                 ));
             }
             bytes.extend_from_slice(&chunk);

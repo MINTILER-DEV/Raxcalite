@@ -19,11 +19,11 @@ Cookie validation covers public suffixes, prefixes, path/domain/expiry/Secure/Ht
 | Active HTTP/socket operations | 32 |
 | Buffered transforms | 8 |
 | Parser processes / queued tasks | 4 / 8 |
-| Parser deadline, including queue | 10 seconds; process killed on timeout/cancellation |
-| Parser JS old-space | 192 MiB per process; native RSS requires OS/container limits |
+| Parser deadline, including queue | Small: 10 seconds; large: 20 seconds; process killed on timeout/cancellation |
+| Parser JS old-space | Small: up to four 192 MiB processes; large: one exclusive 768 MiB process; native RSS requires OS/container limits |
 | Browser/backend upload | 64 MiB; backend streams, browser HTTP/1 wrapper buffers |
 | Upload/transformed-body deadline | 30 seconds |
-| Transformable response | 4 MiB decoded bytes |
+| Transformable response | HTML/CSS: 4 MiB; JavaScript: 16 MiB decoded bytes |
 | Binary/SSE stream | 128 MiB; 10-minute binary / 1-hour SSE total lifetime |
 | Connection / read inactivity | 10 / 30 seconds |
 | Sessions | 256, 30-minute idle TTL; active sockets retain a session |

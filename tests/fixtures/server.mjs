@@ -27,6 +27,14 @@ export function startFixtures(port = 4040) {
     const url = new URL(req.url, 'http://localhost');
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     if (url.pathname === '/style.css') { res.setHeader('content-type','text/css'); res.end('h1{color:rgb(123,45,67)}body{background:#f6f6f9}#image{width:20px}'); }
+    else if (url.pathname === '/large-bundle.js') {res.setHeader('content-type','text/javascript');res.end('/*'+'padding'.repeat(750000)+'*/\nwindow.largeBundle={url:location.href,shadow:(location=>location)("lexical")};');}
+    else if (url.pathname === '/resource-cookie') {res.setHeader('set-cookie','private_resource=yes; Path=/; HttpOnly');res.setHeader('content-type','text/html');res.end('<title>Resource cookie</title>');}
+    else if (url.pathname.startsWith('/public-resource-')) {
+      res.setHeader('access-control-allow-origin','*');res.setHeader('x-fixture-cookie',req.headers.cookie||'');res.setHeader('set-cookie','anonymous_asset=ignored; Path=/');
+      if(url.pathname.endsWith('.js')){res.setHeader('content-type','text/javascript');res.end('window.publicResource='+JSON.stringify({cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||''})+';');}
+      else if(url.pathname.endsWith('.css')){res.setHeader('content-type','text/css');res.end('@font-face{font-family:FixtureFont;src:url(/public-resource-font.woff2)}body{--resource-loaded:yes}');}
+      else {res.setHeader('content-type','font/woff2');res.end('fixture-font-network-bytes');}
+    }
     else if (url.pathname === '/app.js') { res.setHeader('content-type','text/javascript'); res.end(script); }
     else if (url.pathname === '/import-map') { res.setHeader('content-type','text/html');res.end('<title>Import maps</title><script type="importmap">{"imports":{"fixture-package":"/module.js","/remapped.js":"/module.js"},"scopes":{"/":{"scoped-package":"/module.js"}}}</script><script type="module">import {value} from "fixture-package";import {value as remapped} from "/remapped.js";import {value as scoped} from "scoped-package";window.importMapResult={value,remapped,scoped,url:import.meta.url};</script>'); }
     else if (url.pathname === '/module.js') { res.setHeader('content-type','text/javascript'); res.end('export const value="module-value";export const url=import.meta.url;'); }

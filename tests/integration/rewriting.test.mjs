@@ -4,8 +4,16 @@ import vm from 'node:vm';
 import { rewriteHTML } from '../../tools/rewriting/html.mjs';
 import { rewriteJS } from '../../tools/rewriting/javascript.mjs';
 import { rewriteCSS, rewriteCSSResult } from '../../tools/rewriting/css.mjs';
-import { encodeURL, decodeURL, configureMapping } from '../../shared/url.mjs';
+import { encodeURL, decodeURL, configureMapping, resourceCredentials } from '../../shared/url.mjs';
 import { siteHash } from '../../shared/native-origin.mjs';
+test('resource credentials preserve virtual URLs, raw query escapes and fragments',()=>{
+  const url='https://example.com/a.js?x=%2f#fragment';
+  const mapped=resourceCredentials(encodeURL(url,url,'http://localhost:3031'),'same-origin');
+  assert.match(mapped,/x=%2f&__rax_credentials=same-origin#fragment/);assert.equal(decodeURL(mapped),url);
+  assert.equal(decodeURL(resourceCredentials(mapped,'include')),url);
+  const html=rewriteHTML('<script crossorigin="anonymous" src="https://other.example/a.js"></script>','https://example.com/').code;
+  assert.match(html,/__rax_credentials=same-origin/);
+});
 test('isolated mapping is deterministic and idempotent across different native hosts', () => {
   configureMapping({ domain:'rax.localhost',user:'0123456789abcdef01234567',proxyOrigin:'http://rax.localhost:3031' });
   try {

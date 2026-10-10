@@ -18,7 +18,7 @@ export function startTransformer(port = 3032, token = process.env.RAX_TRANSFORM_
     const controller = new AbortController(); res.on('close', () => { if (!res.writableEnded) controller.abort(); });
     try {
       const chunks = []; let size = 0;
-      for await (const chunk of req) { size += chunk.length; if (size > 12 * 1024 * 1024) throw new Error('Transform input limit exceeded'); chunks.push(chunk); }
+      for await (const chunk of req) { size += chunk.length; if (size > 24 * 1024 * 1024) throw new Error('Transform input limit exceeded'); chunks.push(chunk); }
       const input = Buffer.concat(chunks).toString(); const parsed = JSON.parse(input);
       if (!['html', 'css', 'js'].includes(parsed.kind) || typeof parsed.source !== 'string' || typeof parsed.url !== 'string') throw new Error('Invalid transform contract');
       const cacheable = parsed.cache !== false; const key = createHash('sha256').update(input).digest('hex');

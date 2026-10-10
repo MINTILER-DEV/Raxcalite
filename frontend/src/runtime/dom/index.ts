@@ -1,6 +1,7 @@
 import { runtime, map, unmap, baseURL, report, config } from '../core/context';
 import { rewriteStyle, installCSS } from './css';
 import parseSrcset from 'parse-srcset';
+import { resourceCredentials } from '../../../../shared/url.mjs';
 const urls = new Set(['href', 'src', 'action', 'formaction', 'poster', 'data', 'background', 'xlink:href']);
 export function installDOM() {
   installCSS();
@@ -13,9 +14,13 @@ export function installDOM() {
     if (!values) { try { values = JSON.parse(getAttribute.call(element, 'data-rax-authored') || '{}'); } catch { values = {}; } authored.set(element, values!); }
     return values!;
   };
+  const resource = (element:Element, value:string) => {
+    const mapped=map(value), cors=Object.hasOwn(originals(element),'crossorigin')?originals(element).crossorigin:getAttribute.call(element,'crossorigin');
+    return ((cors!==null && cors!==undefined) || (element instanceof HTMLScriptElement && element.type==='module')) ? resourceCredentials(mapped,cors==='use-credentials'?'include':'same-origin') : mapped;
+  };
   Element.prototype.setAttribute = function(name, value) {
     originals(this)[name.toLowerCase()] = String(value);
-    if (urls.has(name.toLowerCase()) && value && !value.startsWith('#')) { try { value = map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
+    if (urls.has(name.toLowerCase()) && value && !value.startsWith('#')) { try { value = ['src','href'].includes(name.toLowerCase())?resource(this,value):map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
     else if (['srcset', 'imagesrcset'].includes(name.toLowerCase())) value = srcset(value);
     else if (name.toLowerCase() === 'style') value = rewriteStyle(value, 'declarationList');
     else if (name.toLowerCase().startsWith('on')) value = runtime.rewriteScript(String(value));
@@ -52,7 +57,7 @@ export function installDOM() {
     if (!descriptor?.get || !descriptor.set) continue;
     Object.defineProperty(Constructor.prototype, key, { ...descriptor,
       get() { return unmap(descriptor.get!.call(this)); },
-      set(value) { originals(this)[key.toLowerCase()] = String(value); descriptor.set!.call(this, value ? map(value) : value); }
+      set(value) { originals(this)[key.toLowerCase()] = String(value); descriptor.set!.call(this, value ? ['src','href'].includes(key)?resource(this,String(value)):map(value) : value); }
     });
   }
   const fixTree = (node: Node) => {
@@ -60,14 +65,14 @@ export function installDOM() {
     if (!(node instanceof Element)) return;
     for (const element of [node, ...node.querySelectorAll('*')]) for (const name of urls) {
       const value = getAttribute.call(element, name);
-      if (value && !value.startsWith('#')) { try { const mapped = map(value); if (mapped !== value) { if (!Object.hasOwn(originals(element), name)) originals(element)[name] = value; setAttribute.call(element, name, mapped); } } catch { report('dom', 'Failed to map an inserted resource'); } }
+      if (value && !value.startsWith('#')) { try { const mapped = ['src','href'].includes(name)?resource(element,value):map(value); if (mapped !== value) { if (!Object.hasOwn(originals(element), name)) originals(element)[name] = value; setAttribute.call(element, name, mapped); } } catch { report('dom', 'Failed to map an inserted resource'); } }
     }
     for (const element of [node, ...node.querySelectorAll('*')]) {
       for (const name of ['srcset', 'imagesrcset']) { const value = getAttribute.call(element, name); if (value) setAttribute.call(element, name, srcset(value)); }
       const style = getAttribute.call(element, 'style'); if (style) setAttribute.call(element, 'style', rewriteStyle(style, 'declarationList'));
       if (element instanceof HTMLStyleElement && element.textContent) { const rewritten = rewriteStyle(element.textContent); if (rewritten !== element.textContent) element.textContent = rewritten; }
       if (element instanceof HTMLScriptElement) {
-        if (element.type === 'module' && config.isolation) setAttribute.call(element,'crossorigin','use-credentials');
+        if (element.type === 'module' && config.isolation) { if(!Object.hasOwn(originals(element),'crossorigin'))originals(element).crossorigin=getAttribute.call(element,'crossorigin')??'';setAttribute.call(element,'crossorigin','use-credentials'); }
         if (!element.src && element.textContent && (!element.type || ['module','text/javascript','application/javascript'].includes(element.type))) element.textContent=runtime.rewriteScript(element.textContent);
       }
       for (const attribute of element.attributes) if (attribute.name.startsWith('on')) setAttribute.call(element,attribute.name,runtime.rewriteScript(attribute.value));

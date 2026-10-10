@@ -1,5 +1,21 @@
 import {test, expect} from '@playwright/test';
 const app = 'http://app.rax.localhost:3040';
+test('large bundles and anonymous cross-origin resources load without exposing private credentials',async({page})=>{
+  await page.goto(app);await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
+  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url()).toBeTruthy();const frame=page.frames().find(f=>f.url().endsWith('/next'))!;
+  await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
+  await frame.evaluate(async()=>{const iframe=document.createElement('iframe');iframe.src='http://127.0.0.1:4040/resource-cookie';await new Promise<void>(resolve=>{iframe.onload=()=>resolve();document.body.append(iframe)});});
+  const publicScript=page.waitForResponse(r=>r.url().includes('/public-resource-script.js'));
+  await frame.evaluate(async()=>{const script=document.createElement('script');script.crossOrigin='anonymous';script.src='http://127.0.0.1:4040/public-resource-script.js';await new Promise<void>((resolve,reject)=>{script.onload=()=>resolve();script.onerror=()=>reject(Error('Anonymous script failed'));document.body.append(script)});});
+  const response=await publicScript;expect(response.status()).toBe(200);expect(response.headers()['set-cookie']).toBeUndefined();
+  expect(await frame.evaluate(()=>(window as any).publicResource)).toEqual({cookie:'',origin:'http://localhost:4040',authorization:''});
+  const fontResponse=page.waitForResponse(r=>r.url().includes('/public-resource-font.woff2'));
+  await frame.evaluate(async()=>{const link=document.createElement('link');link.rel='stylesheet';link.crossOrigin='anonymous';link.href='http://127.0.0.1:4040/public-resource-style.css';await new Promise<void>((resolve,reject)=>{link.onload=()=>resolve();link.onerror=()=>reject(Error('Anonymous style failed'));document.head.append(link)});const face=new FontFace('FixtureFont','url("'+(window as any).__rax.map('http://127.0.0.1:4040/public-resource-font.woff2')+'")');await face.load().catch(()=>{});});
+  const font=await fontResponse;expect(font.status()).toBe(200);expect(font.headers()['x-fixture-cookie']).toBe('');expect(font.headers()['set-cookie']).toBeUndefined();
+  const cookieFrame=page.frames().find(f=>f.url().endsWith('/resource-cookie'))!;await cookieFrame.waitForFunction(()=>!!(window as any).__rax?.map);const echo=await cookieFrame.evaluate(async()=>await(await fetch('/api/echo')).json());expect(echo.cookie).toContain('private_resource=yes');expect(echo.cookie).not.toContain('anonymous_asset');
+  await frame.evaluate(async()=>{const script=document.createElement('script');script.src='/large-bundle.js';await new Promise<void>((resolve,reject)=>{script.onload=()=>resolve();script.onerror=()=>reject(Error('Large script failed'));document.body.append(script)});});
+  expect(await frame.evaluate(()=>(window as any).largeBundle)).toEqual({url:'http://localhost:4040/next',shadow:'lexical'});
+});
 test('direct content documents cannot relax native origin isolation with document.domain',async({page})=>{
   await page.goto('http://rax.localhost:3041/p/aHR0cDovL2xvY2FsaG9zdDo0MDQw/next');await expect(page.locator('h1')).toHaveText('Next page');
   expect(await page.evaluate(()=>{try{document.domain='rax.localhost';return document.domain}catch(e){return(e as DOMException).name}})).toBe('SecurityError');

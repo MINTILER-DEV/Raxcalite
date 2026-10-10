@@ -3,11 +3,13 @@ import traverseModule from '@babel/traverse';
 import generatorModule from '@babel/generator';
 import * as t from '@babel/types';
 import { encodeURL } from '../../shared/url.mjs';
+import { rewriteLargeJS } from './large-javascript.mjs';
 const traverse = traverseModule.default || traverseModule;
 const generate = generatorModule.default || generatorModule;
 const runtime = key => t.memberExpression(t.identifier('__RAX_RUNTIME_v1__'), t.identifier(key));
 
 export function rewriteJS(source, url, options = {}) {
+  if(source.length > 512 * 1024) return rewriteLargeJS(source,url,options);
   const ast = parse(source, { sourceType: 'unambiguous', allowReturnOutsideFunction: !!options.inlineHandler,
     plugins: ['importAttributes'], createImportExpressions: true });
   let changed = false;

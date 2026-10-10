@@ -242,6 +242,27 @@ impl Sessions {
         sessions.insert(id.clone(), session.clone());
         Ok((id, session, true))
     }
+
+    // Public routing metadata can identify anonymous browser subresources, but
+    // must never grant access to the authenticated cookie jar or session ID.
+    pub async fn public_resource(&self, public_id: &str) -> Result<Arc<Mutex<Session>>, String> {
+        let sessions = self.0.lock().await;
+        for session in sessions.values() {
+            let mut existing = session.lock().await;
+            if existing.public_id == public_id
+                && existing.touched.elapsed() <= Duration::from_secs(1800)
+            {
+                if !existing.allow() {
+                    return Err("Session request limit reached".into());
+                }
+                let mut anonymous = Session::new();
+                anonymous.public_id = existing.public_id.clone();
+                anonymous.origins = existing.origins.clone();
+                return Ok(Arc::new(Mutex::new(anonymous)));
+            }
+        }
+        Err("Unknown public resource route".into())
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +286,32 @@ mod tests {
         session.lock().await.touched = Instant::now() - Duration::from_secs(1801);
         assert!(sessions.get(&HeaderMap::new()).await.unwrap().2);
         assert_eq!(sessions.0.lock().await.len(), 256);
+    }
+    #[tokio::test]
+    async fn public_resource_views_cannot_read_or_mutate_private_cookie_state() {
+        let sessions = Sessions::default();
+        let (_, session, _) = sessions.get(&HeaderMap::new()).await.unwrap();
+        let public_id = {
+            let mut private = session.lock().await;
+            let target = url::Url::parse("https://example.com/").unwrap();
+            private
+                .cookies
+                .parse("private=yes; HttpOnly", &target)
+                .unwrap();
+            private
+                .origins
+                .insert("site".into(), "https://example.com".into());
+            private.public_id.clone()
+        };
+        let view = sessions.public_resource(&public_id).await.unwrap();
+        let mut public = view.lock().await;
+        assert_eq!(public.public_id, public_id);
+        assert_eq!(public.cookies.iter_any().count(), 0);
+        assert_eq!(public.origins.get("site").unwrap(), "https://example.com");
+        public.origins.clear();
+        assert_eq!(session.lock().await.origins.len(), 1);
+        assert_eq!(session.lock().await.cookies.iter_any().count(), 1);
+        assert!(sessions.public_resource("unknown").await.is_err());
     }
     #[tokio::test]
     async fn persistence_authentication_expiration_and_rate_limits() {

@@ -1,6 +1,6 @@
 import { parse, serialize, parseFragment } from 'parse5';
 import parseSrcset from 'parse-srcset';
-import { encodeURL } from '../../shared/url.mjs';
+import { encodeURL, resourceCredentials } from '../../shared/url.mjs';
 import { rewriteCSSResult } from './css.mjs';
 import { rewriteJS } from './javascript.mjs';
 
@@ -21,10 +21,14 @@ export function rewriteHTML(source, url, options = {}) {
   visit(document, node => {
     if (!node.tagName) return;
     const original = {};
+    const cors=node.attrs.find(a=>a.name==='crossorigin');
+    const corsMode=cors ? cors.value==='use-credentials'?'include':'same-origin' : node.tagName==='script' && node.attrs.some(a=>a.name==='type' && a.value==='module') ? 'same-origin' : undefined;
+    if(options.isolation && node.tagName==='script' && node.attrs.some(a=>a.name==='type' && a.value==='module'))original.crossorigin=cors?.value??'';
     for (const attr of node.attrs) {
       const authored = attr.value;
       if (['href', 'src', 'action', 'formaction', 'poster', 'data', 'xlink:href', 'background', 'cite'].includes(attr.name) && attr.value && !attr.value.startsWith('#')) {
         attr.value = safe(() => encodeURL(attr.value, base), 'url') ?? attr.value;
+        if(corsMode && ['src','href'].includes(attr.name))attr.value=resourceCredentials(attr.value,corsMode);
       } else if (attr.name === 'srcset' || attr.name === 'imagesrcset') {
         attr.value = safe(() => parseSrcset(attr.value).map(s => `${encodeURL(s.url, base)}${s.w ? ` ${s.w}w` : s.d ? ` ${s.d}x` : ''}`).join(', '), 'srcset') ?? attr.value;
       } else if (attr.name === 'style') attr.value = safe(() => rewriteCSS(attr.value, base, true), 'css') ?? attr.value;

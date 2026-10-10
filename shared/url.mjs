@@ -31,5 +31,14 @@ export function decodeURL(input, proxyOrigin) {
   const url = new URL(input, proxyOrigin);
   const match = /^\/(?:p|ws)\/([^/]+)(\/.*)?$/.exec(url.pathname);
   if (!match) return url.href;
-  return `${decodeOrigin(match[1])}${match[2] || '/'}${url.search}${url.hash}`;
+  const query=url.search.slice(1).split('&').filter(p=>!['__rax_worker','__rax_origin','__rax_credentials'].includes(p.split('=')[0])).join('&');
+  return `${decodeOrigin(match[1])}${match[2] || '/'}${query?'?'+query:''}${url.hash}`;
+}
+// Keep original resource credentials separate from gateway authentication.
+export function resourceCredentials(mapped, mode) {
+  if (!/^(?:https?:\/\/[^/]+)?\/p\//.test(mapped)) return mapped;
+  const hash=mapped.indexOf('#'), head=hash<0?mapped:mapped.slice(0,hash), tail=hash<0?'':mapped.slice(hash);
+  const question=head.indexOf('?'), path=question<0?head:head.slice(0,question);
+  const query=(question<0?[]:head.slice(question+1).split('&')).filter(p=>p.split('=')[0]!=='__rax_credentials');
+  query.push(`__rax_credentials=${mode}`);return `${path}?${query.join('&')}${tail}`;
 }
