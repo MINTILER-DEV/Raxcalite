@@ -15,7 +15,9 @@ export function installNavigation() {
   window.open = (url?: string | URL, target?: string, features?: string) => originalOpen(url ? map(url) : url, target, features);
   const notify = (action = 'update') => {
     const icon = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.href;
-    if (parent !== window) native.postMessage!.call(parent, { type: 'rax:navigation', action, url: currentURL(), title: document.title, icon }, config.appOrigin || '*');
+    // Only the shell's direct document updates its address/title. A nested frame's
+    // parent is another virtual site and does not have the shell's native origin.
+    if (parent !== window && parent === top) native.postMessage!.call(parent, { type: 'rax:navigation', action, url: currentURL(), title: document.title, icon }, config.appOrigin || '*');
   };
   addEventListener('popstate', () => notify('traverse')); addEventListener('hashchange', () => notify('update')); addEventListener('DOMContentLoaded', () => notify('load'));
   addEventListener('pageshow', event => { if ((event as PageTransitionEvent).persisted) notify('traverse'); });

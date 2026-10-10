@@ -24,6 +24,7 @@ test('classic upstream service worker owns only its isolated virtual scope',asyn
   expect(await frame.evaluate(async()=>{try{await navigator.serviceWorker.register('http://127.0.0.1:4040/site-worker.js');return ''}catch(e){return(e as DOMException).name}})).toBe('SecurityError');
 });
 test('native origins isolate hostile frames, storage, assertions and independent users', async ({page,browser}) => {
+  const wrongTargets:string[]=[];page.on('console',message=>{if(message.text().includes('target origin provided'))wrongTargets.push(message.text());});
   await page.goto(app);await page.locator('#address').fill('http://localhost:4040/frame');await page.locator('#address').press('Enter');
   await expect.poll(()=>page.frames().find(f=>f.url().includes('/p/') && f.url().endsWith('/frame'))?.url()).toBeTruthy();
   const frame=page.frames().find(f=>f.url().endsWith('/frame'))!;
@@ -32,6 +33,9 @@ test('native origins isolate hostile frames, storage, assertions and independent
   expect(new URL(child.url()).origin).not.toBe(new URL(frame.url()).origin);
   expect(await child.evaluate(()=>{try{return parent.document.title}catch(e){return (e as DOMException).name}})).toBe('SecurityError');
   expect(await frame.evaluate(()=>{try{return parent.document.title}catch(e){return (e as DOMException).name}})).toBe('SecurityError');
+  await child.evaluate(()=>{document.title='Nested frame title';history.replaceState(null,'','#nested');});
+  await expect(page.locator('#address')).toHaveValue('http://localhost:4040/frame');
+  expect(wrongTargets).toEqual([]);
   await frame.evaluate(()=>localStorage.setItem('private','parent'));expect(await child.evaluate(()=>localStorage.getItem('private'))).toBeNull();
   const bypass=await frame.evaluate(async()=>{
     const blank=document.createElement('iframe');document.body.append(blank);const fetchNative=blank.contentWindow!.fetch.bind(blank.contentWindow);
