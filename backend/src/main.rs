@@ -1,6 +1,7 @@
 mod config;
 mod cookies;
 mod cors;
+mod operations;
 mod rewriting;
 mod security;
 mod sessions;
@@ -29,6 +30,7 @@ pub struct AppState {
     sessions: sessions::Sessions,
     limit: Arc<Semaphore>,
     transform_limit: Arc<Semaphore>,
+    metrics: Arc<operations::Metrics>,
 }
 #[tokio::main]
 async fn main() {
@@ -58,11 +60,17 @@ async fn main() {
         sessions: sessions::Sessions::default(),
         limit: Arc::new(Semaphore::new(32)),
         transform_limit: Arc::new(Semaphore::new(8)),
+        metrics: Arc::new(operations::Metrics::default()),
     };
-    let app = Router::new().fallback_service(
-        ServeDir::new("frontend/dist")
-            .not_found_service(ServeFile::new("frontend/dist/index.html")),
-    );
+    let app = Router::new()
+        .fallback_service(
+            ServeDir::new("frontend/dist")
+                .not_found_service(ServeFile::new("frontend/dist/index.html")),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            operations::guard,
+        ));
     let cors = CorsLayer::new()
         .allow_origin(
             config
@@ -81,10 +89,16 @@ async fn main() {
             get(transport::read_cookie).post(transport::write_cookie),
         )
         .route("/health", get(|| async { "Raxcalite OK" }))
+        .route("/ready", get(operations::ready))
+        .route("/metrics", get(operations::metrics))
         .route("/api/session/reset", post(transport::reset_session))
         .fallback_service(ServeDir::new("frontend/dist").append_index_html_on_directories(false))
         .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            operations::guard,
+        ))
         .with_state(state);
     let app_listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.bind, config.app_port))
@@ -99,7 +113,7 @@ async fn main() {
         config.app_origin, config.proxy_origin
     );
     let _ = tokio::join!(
-        axum::serve(app_listener, app),
-        axum::serve(proxy_listener, proxy)
+        axum::serve(app_listener, app).with_graceful_shutdown(operations::shutdown()),
+        axum::serve(proxy_listener, proxy).with_graceful_shutdown(operations::shutdown())
     );
 }
