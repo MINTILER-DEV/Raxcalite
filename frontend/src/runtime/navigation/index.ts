@@ -1,5 +1,6 @@
 import { currentURL, map, unmap, report, native, config } from '../core/context';
 export function installNavigation() {
+  const historyMethods:Partial<Record<'pushState'|'replaceState',History['pushState']>>={};
   for (const key of ['pushState', 'replaceState'] as const) {
     const original = History.prototype[key];
     History.prototype[key] = function(data: any, unused: string, url?: string | URL | null) {
@@ -10,7 +11,33 @@ export function installNavigation() {
       } else original.call(this,data, unused, url);
       notify(key === 'pushState' ? 'push' : 'replace');
     };
+    historyMethods[key]=History.prototype[key];
   }
+  // Same-origin blank frames expose a fresh History prototype. Sites may borrow
+  // those native methods and bind them to this document's History instance.
+  const prepared=new WeakSet<object>();
+  const contentWindow=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'contentWindow');
+  const prepare=(frame:HTMLIFrameElement)=>{
+    const child=contentWindow?.get?.call(frame) as Window|null;
+    try {
+      if(!child || child.location.href!=='about:blank')return child;
+      const prototype=Object.getPrototypeOf(child.history);
+      if(prepared.has(prototype))return child;
+      prepared.add(prototype);
+      for(const key of ['pushState','replaceState'] as const){
+        const descriptor=Object.getOwnPropertyDescriptor(prototype,key);
+        if(!descriptor || typeof descriptor.value!=='function')continue;
+        const original=descriptor.value;
+        Object.defineProperty(prototype,key,{...descriptor,value:function(this:History,...args:any[]){
+          return Reflect.apply(this===window.history?historyMethods[key]!:original,this,args);
+        }});
+      }
+    }catch{/* Foreign frame access remains subject to native origin checks. */}
+    return child;
+  };
+  if(contentWindow?.get)Object.defineProperty(HTMLIFrameElement.prototype,'contentWindow',{...contentWindow,get(){return prepare(this);}});
+  const contentDocument=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'contentDocument');
+  if(contentDocument?.get)Object.defineProperty(HTMLIFrameElement.prototype,'contentDocument',{...contentDocument,get(){prepare(this);return contentDocument.get!.call(this);}});
   const originalOpen = window.open.bind(window);
   window.open = (url?: string | URL, target?: string, features?: string) => originalOpen(url ? map(url) : url, target, features);
   const notify = (action = 'update') => {

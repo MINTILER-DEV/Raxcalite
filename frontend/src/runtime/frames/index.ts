@@ -1,10 +1,15 @@
 import { runtime, currentURL, native, unmap, config, map } from '../core/context';
 import { nativeOrigin } from '../../../../shared/native-origin.mjs';
 export function installFrames() {
+  let shellTop=false;
+  try {shellTop=top!.location.origin===config.appOrigin;}catch{shellTop=true;}
+  if(parent===top && parent!==window && document.referrer){
+    try {shellTop=new URL(document.referrer).origin===config.appOrigin;}catch{}
+  }
   let highest:Window=window;
-  while(highest.parent!==highest && highest.parent!==top)highest=highest.parent;
+  while(highest.parent!==highest && (!shellTop || highest.parent!==top))highest=highest.parent;
   runtime.top=highest;
-  runtime.parent=parent===top?window:parent;
+  runtime.parent=shellTop && parent===top?window:parent;
   // postMessage remains native. Envelopes carry virtual sender/target origins to mapped receivers.
   const original = native.postMessage!;
   runtime.postMessage = function(targetWindow: Window | MessagePort | Worker, message: any, targetOrigin?: string | WindowPostMessageOptions, transfer?: Transferable[]) {

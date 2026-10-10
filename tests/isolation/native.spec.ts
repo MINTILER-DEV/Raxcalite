@@ -12,6 +12,7 @@ test('location aliases, suppressed referrers, raw native paths and data fetches 
   expect(await frame.evaluate(()=>{const url=URL.createObjectURL(new Blob(['postMessage(1)']));try{new Worker(url);return '';}catch(e){return(e as DOMException).name;}finally{URL.revokeObjectURL(url);}})).toBe('NotSupportedError');
   const xhr=await frame.evaluate(()=>new Promise(resolve=>{const x=new XMLHttpRequest();x.open('GET','http://127.0.0.1:4040/api/echo?cors=yes');x.responseType='json';x.onload=()=>resolve({credentials:x.withCredentials,status:x.status,origin:x.response.origin,cookie:x.response.cookie});x.onerror=()=>resolve({status:x.status});x.send();}));
   expect(xhr).toEqual({credentials:false,status:200,origin:'http://localhost:4040',cookie:''});
+  expect(await frame.evaluate(()=>(window as any).borrowHistory())).toEqual({url:'http://localhost:4040/native-aliases?borrowed=prototype',state:{borrowed:'prototype'},error:'SecurityError'});
   const nativeHost=new URL(frame.url()).origin;
   const outsider=await browser.newContext();const outside=await outsider.newPage();expect((await outside.goto(nativeHost+'/next'))!.status()).toBe(403);await outsider.close();
   await frame.locator('#alias-next').click();await expect.poll(()=>page.frames().find(f=>f.url().includes('/next?alias=yes'))?.url()).toBeTruthy();frame=page.frames().find(f=>f.url().includes('/next?alias=yes'))!;await expect(frame.locator('h1')).toHaveText('Next page');
@@ -38,6 +39,12 @@ test('large bundles and anonymous cross-origin resources load without exposing p
 test('direct content documents cannot relax native origin isolation with document.domain',async({page})=>{
   await page.goto('http://rax.localhost:3041/p/aHR0cDovL2xvY2FsaG9zdDo0MDQw/next');await expect(page.locator('h1')).toHaveText('Next page');
   expect(await page.evaluate(()=>{try{document.domain='rax.localhost';return document.domain}catch(e){return(e as DOMException).name}})).toBe('SecurityError');
+});
+test('direct content roots retain nested frame parents without an application shell',async({page})=>{
+  await page.goto('http://rax.localhost:3041/p/aHR0cDovL2xvY2FsaG9zdDo0MDQw/frame');
+  await expect.poll(()=>page.evaluate(()=>(window as any).messageResult)).toEqual({data:'child-value',origin:'http://127.0.0.1:4040'});
+  expect(await page.evaluate(()=>(window as any).frameBoundary)).toEqual({top:true,parent:true});
+  const child=page.frames().find(f=>f.url().endsWith('/child'))!;expect(await child.evaluate(()=>(window as any).frameBoundary)).toEqual({top:true,parent:true,root:true});
 });
 test('module service workers are explicitly restricted when native loading cannot authenticate',async({page,browser})=>{
   const direct=await browser.newContext();const reference=await direct.newPage();await reference.goto('http://localhost:4040/next');
