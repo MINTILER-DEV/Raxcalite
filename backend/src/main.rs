@@ -1,6 +1,7 @@
 mod config;
 mod cookies;
 mod cors;
+mod isolation;
 mod operations;
 mod rewriting;
 mod security;
@@ -11,7 +12,7 @@ mod websocket;
 
 use axum::{
     Router,
-    http::{HeaderValue, Method},
+    http::Method,
     routing::{any, get, post},
 };
 use config::Config;
@@ -75,6 +76,7 @@ async fn main() {
         }
     });
     let app = Router::new()
+        .route("/config.js", get(isolation::app_config))
         .fallback_service(
             ServeDir::new("frontend/dist")
                 .not_found_service(ServeFile::new("frontend/dist/index.html")),
@@ -82,17 +84,28 @@ async fn main() {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             operations::guard,
-        ));
+        ))
+        .with_state(state.clone());
+    let cors_config = config.clone();
     let cors = CorsLayer::new()
-        .allow_origin(
-            config
-                .app_origin
-                .parse::<HeaderValue>()
-                .expect("App origin"),
-        )
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(
+            move |origin, _| {
+                origin
+                    .to_str()
+                    .is_ok_and(|value| isolation::known_origin(value, &cors_config))
+            },
+        ))
         .allow_credentials(true)
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([axum::http::header::CONTENT_TYPE]);
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::HEAD,
+            Method::OPTIONS,
+        ])
+        .allow_headers(tower_http::cors::AllowHeaders::mirror_request());
     let proxy = Router::new()
         .route("/p/{*path}", any(transport::proxy))
         .route("/ws/{*path}", get(websocket::upgrade))
@@ -104,6 +117,7 @@ async fn main() {
         .route("/ready", get(operations::ready))
         .route("/metrics", get(operations::metrics))
         .route("/api/session/reset", post(transport::reset_session))
+        .route("/api/session", get(isolation::bootstrap))
         .fallback_service(ServeDir::new("frontend/dist").append_index_html_on_directories(false))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(cors)

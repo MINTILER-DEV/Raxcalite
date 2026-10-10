@@ -11,6 +11,7 @@ pub struct Config {
     pub bind: String,
     pub fixture_hosts: Vec<String>,
     pub timeout: Duration,
+    pub isolation_domain: Option<String>,
 }
 impl Config {
     pub fn load() -> Self {
@@ -29,7 +30,7 @@ impl Config {
         };
         let app_port = port("RAX_APP_PORT", 3030);
         let proxy_port = port("RAX_PROXY_PORT", 3031);
-        Self {
+        let value = Self {
             app_port,
             proxy_port,
             transform_port: port("RAX_TRANSFORM_PORT", 3032),
@@ -47,6 +48,40 @@ impl Config {
                 .map(str::to_owned)
                 .collect(),
             timeout: Duration::from_secs(30),
+            isolation_domain: env::var("RAX_ISOLATION_DOMAIN").ok(),
+        };
+        let app = url::Url::parse(&value.app_origin).expect("App URL");
+        let proxy = url::Url::parse(&value.proxy_origin).expect("Content URL");
+        assert!(
+            app.origin() != proxy.origin(),
+            "Shell and content must have distinct origins"
+        );
+        if let Some(domain) = &value.isolation_domain {
+            assert!(
+                domain.len() < 190
+                    && domain.split('.').all(|part| !part.is_empty()
+                        && part.len() < 64
+                        && part
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')),
+                "Invalid isolation domain"
+            );
+            assert!(
+                proxy.host_str() == Some(domain)
+                    && app
+                        .host_str()
+                        .is_some_and(|h| h.ends_with(&format!(".{domain}"))),
+                "Content base and shell must share the configured isolation domain"
+            );
+            assert!(
+                app.scheme() == proxy.scheme(),
+                "Use the same shell/content scheme"
+            );
+            assert!(
+                proxy.scheme() == "https" || domain.ends_with(".localhost"),
+                "Isolated public origins require HTTPS"
+            );
         }
+        value
     }
 }

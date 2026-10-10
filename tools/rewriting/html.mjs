@@ -19,14 +19,19 @@ export function rewriteHTML(source, url, options = {}) {
   const safe = (fn, subsystem) => { try { return fn(); } catch (error) { warnings.push(`${subsystem}: ${error.message.slice(0, 160)}`); return null; } };
   visit(document, node => {
     if (!node.tagName) return;
+    const original = {};
     for (const attr of node.attrs) {
+      const authored = attr.value;
       if (['href', 'src', 'action', 'formaction', 'poster', 'data', 'xlink:href', 'background', 'cite'].includes(attr.name) && attr.value && !attr.value.startsWith('#')) {
         attr.value = safe(() => encodeURL(attr.value, base), 'url') ?? attr.value;
       } else if (attr.name === 'srcset' || attr.name === 'imagesrcset') {
         attr.value = safe(() => parseSrcset(attr.value).map(s => `${encodeURL(s.url, base)}${s.w ? ` ${s.w}w` : s.d ? ` ${s.d}x` : ''}`).join(', '), 'srcset') ?? attr.value;
       } else if (attr.name === 'style') attr.value = safe(() => rewriteCSS(attr.value, base, true), 'css') ?? attr.value;
       else if (attr.name.startsWith('on')) attr.value = safe(() => rewriteJS(attr.value, base, { inlineHandler: true }).code, 'javascript') ?? attr.value;
+      if (attr.value !== authored) original[attr.name] = authored;
     }
+    if (Object.keys(original).length) node.attrs.push({ name: 'data-rax-authored', value: JSON.stringify(original) });
+    if (options.isolation && node.tagName === 'script' && node.attrs.some(a => a.name === 'type' && a.value === 'module')) { node.attrs = node.attrs.filter(a => a.name !== 'crossorigin'); node.attrs.push({ name: 'crossorigin', value: 'use-credentials' }); }
     // Transformed bytes cannot retain upstream integrity hashes.
     node.attrs = node.attrs.filter(a => !['integrity', 'nonce'].includes(a.name));
     if (node.tagName === 'meta') {
@@ -66,7 +71,7 @@ export function rewriteHTML(source, url, options = {}) {
   });
   let head;
   visit(document, node => { if (node.tagName === 'head') head = node; });
-  const config = JSON.stringify({ url, base, debug: !!options.debug, warnings }).replaceAll('<', '\\u003c');
+  const config = JSON.stringify({ url, base, debug: !!options.debug, warnings, isolation: options.isolation, appOrigin: options.appOrigin }).replaceAll('<', '\\u003c');
   const bootstrap = parseFragment(`<script>globalThis.__RAX_CONFIG__=${config}</script><script src="/runtime.js"></script>`).childNodes;
   for (const child of bootstrap) child.parentNode = head;
   head.childNodes.unshift(...bootstrap);

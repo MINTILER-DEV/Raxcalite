@@ -1,0 +1,13 @@
+# Native origin isolation
+
+`npm run dev` opens `http://app.rax.localhost:3030`. Modern browsers resolve `*.localhost` to loopback without hosts-file changes. `http://localhost:3030` redirects to that shell. `npm run dev:shared` explicitly selects the older shared-origin compatibility mode.
+
+Each user/site pair uses `<public-user-id>-<site-hash>.rax.localhost:3031`. The public user identifier is independently generated and is not the authentication secret. The site hash is the first 128 bits of SHA-256 over the canonical original origin; HTTP/WebSocket equivalents share a host. The existing `/p/<origin-token>/path` mapping still carries the exact virtual URL.
+
+The browser itself separates documents, frames, workers, storage and service-worker scopes across these hosts. The backend checks that the native Host belongs to the authenticated session and mapped target. It derives the calling virtual origin from native Origin/Referer and the session's visited-origin registry. Client assertions cannot change that identity. Cookie endpoints also require the matching native host and document origin. Normal CORS enforcement still applies to the original upstream origins.
+
+The opaque session cookie is HttpOnly, SameSite=Strict and Secure under HTTPS. Its Domain spans the content domain so native requests to the user's site hosts can authenticate. Use a dedicated domain with no unrelated applications. The shell has its own native origin under that domain. Native cookie-domain capabilities can still cause cookie poisoning/denial of service; this architecture does not claim to reproduce the original site's native identity or eliminate all browser trust risks.
+
+For deployment, set `RAX_ISOLATION_DOMAIN=content.your-domain.example`, `RAX_PROXY_ORIGIN=https://content.your-domain.example`, and `RAX_APP_ORIGIN=https://app.content.your-domain.example`. Route the base and wildcard content hosts to the content listener and the exact app host to the shell listener, preserve Host, and authenticate users at the gateway. Supply wildcard DNS and TLS covering the content hosts. Runtime configuration comes from `/config.js`, so container assets do not need rebuilding for different domains. Public isolated origins require HTTPS. A domain cannot contain unrelated tenants or services.
+
+`npm run test:isolation` verifies actual native frame restrictions, per-user/site hosts, storage separation, forged metadata rejection, cookie access restrictions, messaging, CORS, module/dedicated workers and sockets. Shared-origin regression tests remain separate. These are acceptance tests for implemented paths, not an independent security audit.

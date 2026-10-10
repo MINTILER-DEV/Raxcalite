@@ -9,6 +9,7 @@ export function installWorkers() {
       const url = new URL(source); url.search += `${url.search ? '&' : '?'}__rax_worker=${args[1]?.type === 'module' ? 'module' : 'classic'}`;
       const options = name === 'SharedWorker' && typeof args[1] === 'string' ? { name: `${new URL(config.url).origin}:${args[1]}` } : { ...args[1] };
       if (name === 'SharedWorker') options.name = `${new URL(config.url).origin}:${options.name || ''}`;
+      if (config.isolation && options.type === 'module') options.credentials = 'include';
       const worker = Reflect.construct(Target, [url.href, options]);
       worker.addEventListener('error', (event: ErrorEvent) => report('workers', event.message || 'Worker initialization failed'));
       return worker;

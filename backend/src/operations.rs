@@ -17,13 +17,34 @@ pub struct Metrics {
 
 pub async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
     // Reject DNS-rebinding Host names. Forwarded headers never establish trust.
-    let allowed = [&state.config.app_origin, &state.config.proxy_origin]
-        .iter()
-        .any(|origin| {
-            let url = url::Url::parse(origin).expect("configured origin");
-            let authority = &url[url::Position::BeforeHost..url::Position::AfterPort];
-            request.headers().get("host").and_then(|h| h.to_str().ok()) == Some(authority)
-        });
+    let host = request
+        .headers()
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    if state.config.isolation_domain.is_some()
+        && host == format!("localhost:{}", state.config.app_port)
+    {
+        return (
+            StatusCode::TEMPORARY_REDIRECT,
+            [(
+                "location",
+                format!("{}{}", state.config.app_origin, request.uri()),
+            )],
+        )
+            .into_response();
+    }
+    let protocol = url::Url::parse(&state.config.proxy_origin)
+        .unwrap()
+        .scheme()
+        .to_owned();
+    let allowed = crate::isolation::known_origin(&format!("{protocol}://{host}"), &state.config)
+        || (["/health", "/ready"].contains(&request.uri().path())
+            && [
+                format!("127.0.0.1:{}", state.config.proxy_port),
+                format!("localhost:{}", state.config.proxy_port),
+            ]
+            .contains(&host.to_owned()));
     if !allowed {
         return transport::error(StatusCode::MISDIRECTED_REQUEST, "Unknown gateway host");
     }

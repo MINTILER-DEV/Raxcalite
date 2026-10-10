@@ -6,6 +6,9 @@ pub struct Transform<'a> {
     pub cache: bool,
     pub kind: &'a str,
     pub source: &'a str,
+    pub isolation: Option<crate::isolation::Isolation>,
+    #[serde(rename = "appOrigin")]
+    pub app_origin: &'a str,
     pub encoding: &'a str,
     pub url: &'a str,
     pub debug: bool,

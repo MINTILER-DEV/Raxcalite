@@ -1,4 +1,4 @@
-import { native, map, currentURL, unmap, getter, report } from '../core/context';
+import { native, map, currentURL, unmap, getter, report, config } from '../core/context';
 import { responseView } from './responses';
 export function installNetwork() {
   globalThis.Request = new Proxy(native.Request, { construct(Target, args) {
@@ -27,7 +27,7 @@ export function installNetwork() {
       } finally { original.signal.removeEventListener('abort', cancel); reader.releaseLock(); }
     }
     const mapped = new native.Request(map(original.url), { method: original.method, headers, body,
-      credentials: 'include', mode: 'same-origin', signal: original.signal, redirect: original.redirect,
+      credentials: 'include', mode: config.isolation ? 'cors' : 'same-origin', signal: original.signal, redirect: original.redirect,
       cache: original.cache, keepalive: original.keepalive, referrerPolicy: original.referrerPolicy });
     try {
       const response = await native.fetch(mapped);

@@ -1,5 +1,5 @@
-import { encodeURL, decodeURL } from '../../../../shared/url.mjs';
-export interface RuntimeConfig { url: string; base: string; worker?: boolean; debug?: boolean; warnings?: string[] }
+import { encodeURL, decodeURL, configureMapping } from '../../../../shared/url.mjs';
+export interface RuntimeConfig { url: string; base: string; worker?: boolean; debug?: boolean; warnings?: string[]; appOrigin?: string; isolation?: { domain: string; user: string; proxyOrigin: string } }
 export interface Diagnostic { subsystem: string; message: string; time: number }
 export const root = globalThis as typeof globalThis & { __RAX_CONFIG__?: RuntimeConfig; __rax: any };
 declare global { var __rax: any; }
@@ -13,7 +13,7 @@ export const native = {
   postMessage: (typeof window !== 'undefined' ? window.postMessage : undefined) as ((this: Window, message: any, targetOrigin: string, transfer?: Transferable[]) => void) | undefined,
 };
 export let config: RuntimeConfig;
-export function setConfig(value: RuntimeConfig) { config = value; }
+export function setConfig(value: RuntimeConfig) { config = value; configureMapping(value.isolation); }
 export function currentURL(): string {
   if (config.worker) return config.url;
   return decodeURL(native.location.href, native.location.origin);

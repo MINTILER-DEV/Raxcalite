@@ -34,12 +34,22 @@ pub fn error(status: StatusCode, message: impl AsRef<str>) -> Response {
     )
         .into_response()
 }
-fn virtual_referrer(headers: &HeaderMap, proxy_origin: &str) -> Option<Url> {
+fn virtual_referrer(headers: &HeaderMap, config: &crate::config::Config) -> Option<Url> {
     let actual = Url::parse(headers.get(header::REFERER)?.to_str().ok()?).ok()?;
-    if actual.origin().ascii_serialization() != proxy_origin {
+    if !crate::isolation::known_origin(&actual.origin().ascii_serialization(), config) {
         return None;
     }
-    url_mapping::decode(actual.path(), actual.query()).ok()
+    let decoded = url_mapping::decode(actual.path(), actual.query()).ok()?;
+    if let Some(domain) = &config.isolation_domain
+        && !actual.host_str()?.ends_with(&format!(
+            "-{}.{}",
+            crate::isolation::site_hash(&decoded),
+            domain
+        ))
+    {
+        return None;
+    }
+    Some(decoded)
 }
 fn hop_header(name: &str) -> bool {
     matches!(
@@ -122,13 +132,91 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             "Session request limit reached".into(),
         ));
     }
-    let referer = virtual_referrer(&parts.headers, &state.config.proxy_origin);
-    let virtual_origin = parts
-        .headers
-        .get("x-rax-origin")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| Url::parse(v).ok())
-        .or_else(|| referer.clone());
+    let isolation;
+    let content_origin;
+    let virtual_origin;
+    let referer;
+    {
+        let mut current = session.lock().await;
+        isolation = crate::isolation::settings(&state.config, &current);
+        content_origin = crate::isolation::origin(&target, &state.config, &current);
+        let incoming_host = parts
+            .headers
+            .get(header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let expected = Url::parse(&content_origin).unwrap();
+        if state.config.isolation_domain.is_some()
+            && incoming_host != &expected[url::Position::BeforeHost..url::Position::AfterPort]
+        {
+            if incoming_host
+                == &Url::parse(&state.config.proxy_origin).unwrap()
+                    [url::Position::BeforeHost..url::Position::AfterPort]
+                && parts.method == axum::http::Method::GET
+            {
+                let mut response = StatusCode::TEMPORARY_REDIRECT.into_response();
+                response.headers_mut().insert(
+                    header::LOCATION,
+                    HeaderValue::from_str(&format!(
+                        "{content_origin}{}",
+                        url_mapping::encode(&target)
+                    ))
+                    .unwrap(),
+                );
+                response.headers_mut().insert(
+                    header::SET_COOKIE,
+                    crate::isolation::cookie(&id, &state.config),
+                );
+                return Ok(response);
+            }
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Content origin does not belong to this session and virtual site".into(),
+            ));
+        }
+        let claimed = parts
+            .headers
+            .get("x-rax-origin")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| Url::parse(v).ok());
+        if isolation.is_some() {
+            let source = crate::isolation::source(&parts.headers, &state.config, &current);
+            if claimed
+                .as_ref()
+                .is_some_and(|u| source.as_ref().is_none_or(|s| u.origin() != s.origin()))
+            {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Virtual origin assertion does not match native origin".into(),
+                ));
+            }
+            if parts.headers.contains_key(header::ORIGIN) && source.is_none() {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Unknown native request origin".into(),
+                ));
+            }
+            referer = source.clone();
+            virtual_origin = source;
+            if current.origins.len() >= 1024
+                && !current
+                    .origins
+                    .contains_key(&crate::isolation::site_hash(&target))
+            {
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Virtual site capacity reached".into(),
+                ));
+            }
+            current.origins.insert(
+                crate::isolation::site_hash(&target),
+                target.origin().ascii_serialization(),
+            );
+        } else {
+            referer = virtual_referrer(&parts.headers, &state.config);
+            virtual_origin = claimed.or_else(|| referer.clone());
+        }
+    }
     let same_origin = virtual_origin
         .as_ref()
         .is_none_or(|u| u.origin() == target.origin());
@@ -360,7 +448,11 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             .map_err(|_| fail("Invalid redirect URL"))?;
         security::validate_url(&next, &state.config.fixture_hosts)
             .map_err(|e| (StatusCode::FORBIDDEN, e))?;
-        translated_location = Some(url_mapping::encode(&next));
+        translated_location = Some(crate::isolation::mapped(
+            &next,
+            &state.config,
+            &*session.lock().await,
+        ));
     }
     let content_type = upstream_headers
         .get(header::CONTENT_TYPE)
@@ -449,15 +541,22 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
     if fresh {
         response_headers.append(
             header::SET_COOKIE,
-            HeaderValue::from_str(&format!(
-                "rax_session={id}; Path=/; HttpOnly; SameSite=Strict{}",
-                if state.config.proxy_origin.starts_with("https:") {
-                    "; Secure"
-                } else {
-                    ""
-                }
-            ))
-            .unwrap(),
+            crate::isolation::cookie(&id, &state.config),
+        );
+    }
+    if isolation.is_some() {
+        let exposed = response_headers
+            .keys()
+            .map(|n| n.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        response_headers.insert(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            HeaderValue::from_str(&exposed).unwrap(),
+        );
+        response_headers.insert(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
         );
     }
     let response_body;
@@ -497,6 +596,8 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                 cache: cacheable_request && !upstream_headers.contains_key(header::SET_COOKIE),
                 kind: kind.unwrap(),
                 source: &text,
+                isolation,
+                app_origin: &state.config.app_origin,
                 encoding: &content_type,
                 url: target.as_str(),
                 debug: std::env::var("RAX_DEBUG").is_ok_and(|value| value == "1"),
@@ -522,7 +623,18 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             );
         }
         if kind == Some("html") {
-            response_headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&format!("default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors {} {}; object-src 'none'; base-uri 'self'", state.config.app_origin, state.config.proxy_origin)).unwrap());
+            let resource_origins = if let Some(domain) = &state.config.isolation_domain {
+                let proxy = Url::parse(&state.config.proxy_origin).unwrap();
+                format!(
+                    "{}://*.{}:{}",
+                    proxy.scheme(),
+                    domain,
+                    proxy.port_or_known_default().unwrap()
+                )
+            } else {
+                "'self'".into()
+            };
+            response_headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&format!("default-src 'self' {resource_origins} data: blob:; script-src 'self' {resource_origins} 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' {resource_origins} 'unsafe-inline'; connect-src 'self' {resource_origins} ws: wss:; frame-ancestors {} {} {resource_origins}; object-src 'none'; base-uri 'self' {resource_origins}", state.config.app_origin, content_origin)).unwrap());
             response_headers.insert(
                 "permissions-policy",
                 HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
@@ -581,7 +693,7 @@ fn cookie_target(
     state: &AppState,
 ) -> Result<Url, (StatusCode, &'static str)> {
     let target = Url::parse(value).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid cookie URL"))?;
-    let referer = virtual_referrer(headers, &state.config.proxy_origin).ok_or((
+    let referer = virtual_referrer(headers, &state.config).ok_or((
         StatusCode::FORBIDDEN,
         "Cookie access requires a virtual document",
     ))?;
@@ -604,6 +716,15 @@ pub async fn read_cookie(
         Err(e) => return error(StatusCode::SERVICE_UNAVAILABLE, e),
     };
     let jar = session.lock().await;
+    if state.config.isolation_domain.is_some() {
+        let actual = crate::isolation::origin(&target, &state.config, &jar);
+        let expected = Url::parse(&actual).unwrap();
+        if headers.get(header::HOST).and_then(|v| v.to_str().ok())
+            != Some(&expected[url::Position::BeforeHost..url::Position::AfterPort])
+        {
+            return error(StatusCode::FORBIDDEN, "Cookie session host mismatch");
+        }
+    }
     let value = jar
         .cookies
         .iter_any()
@@ -650,6 +771,15 @@ pub async fn write_cookie(
         return error(StatusCode::BAD_REQUEST, "Invalid script cookie");
     }
     let mut jar = session.lock().await;
+    if state.config.isolation_domain.is_some() {
+        let actual = crate::isolation::origin(&target, &state.config, &jar);
+        let expected = Url::parse(&actual).unwrap();
+        if headers.get(header::HOST).and_then(|v| v.to_str().ok())
+            != Some(&expected[url::Position::BeforeHost..url::Position::AfterPort])
+        {
+            return error(StatusCode::FORBIDDEN, "Cookie session host mismatch");
+        }
+    }
     if !jar.allow() {
         return error(StatusCode::TOO_MANY_REQUESTS, "Cookie jar limit reached");
     }

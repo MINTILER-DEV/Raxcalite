@@ -9,6 +9,8 @@ use tokio::sync::Mutex;
 
 pub struct Session {
     pub cookies: CookieStore,
+    pub public_id: String,
+    pub origins: HashMap<String, String>,
     pub touched: Instant,
     pub window: Instant,
     pub requests: u32,
@@ -18,6 +20,8 @@ impl Session {
     fn new() -> Self {
         Self {
             cookies: CookieStore::default(),
+            public_id: public_id(),
+            origins: HashMap::new(),
             touched: Instant::now(),
             window: Instant::now(),
             requests: 0,
@@ -43,11 +47,18 @@ struct Persistence {
     path: std::path::PathBuf,
     cipher: aes_gcm::Aes256Gcm,
 }
+fn public_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..24].into()
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Record {
     id: String,
     expires: u64,
     cookies: CookieStore,
+    #[serde(default = "public_id")]
+    public_id: String,
+    #[serde(default)]
+    origins: HashMap<String, String>,
 }
 fn epoch() -> u64 {
     std::time::SystemTime::now()
@@ -108,6 +119,8 @@ impl Sessions {
                 let remaining = record.expires.saturating_sub(epoch()).min(1800);
                 let mut session = Session::new();
                 session.cookies = record.cookies;
+                session.public_id = record.public_id;
+                session.origins = record.origins;
                 session.touched = Instant::now() - Duration::from_secs(1800 - remaining);
                 sessions.insert(record.id, Arc::new(Mutex::new(session)));
             }
@@ -143,6 +156,8 @@ impl Sessions {
                     id: id.clone(),
                     expires: epoch() + 1800 - s.touched.elapsed().as_secs(),
                     cookies: s.cookies.clone(),
+                    public_id: s.public_id.clone(),
+                    origins: s.origins.clone(),
                 });
             }
         }

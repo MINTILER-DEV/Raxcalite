@@ -46,11 +46,6 @@ pub async fn upgrade(
     if !matches!(target.scheme(), "ws" | "wss") {
         return error(StatusCode::BAD_REQUEST, "Invalid socket protocol");
     }
-    if headers.get("origin").and_then(|v| v.to_str().ok())
-        != Some(state.config.proxy_origin.as_str())
-    {
-        return error(StatusCode::FORBIDDEN, "Invalid WebSocket origin");
-    }
     let addresses = match security::resolve_socket(&target, &state.config.fixture_hosts).await {
         Ok(a) => a,
         Err(e) => return error(StatusCode::FORBIDDEN, e),
@@ -59,6 +54,29 @@ pub async fn upgrade(
         Ok(s) => s,
         Err(e) => return error(StatusCode::SERVICE_UNAVAILABLE, e),
     };
+    if state.config.isolation_domain.is_some() {
+        let current = session.lock().await;
+        let actual = headers
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if sender.as_ref().is_none_or(|source| {
+            crate::isolation::origin(source, &state.config, &current) != actual
+        }) {
+            return error(StatusCode::FORBIDDEN, "Invalid native WebSocket origin");
+        }
+        let origin = crate::isolation::origin(&target, &state.config, &current);
+        let expected = url::Url::parse(&origin).unwrap();
+        if headers.get("host").and_then(|v| v.to_str().ok())
+            != Some(&expected[url::Position::BeforeHost..url::Position::AfterPort])
+        {
+            return error(StatusCode::FORBIDDEN, "Invalid WebSocket session host");
+        }
+    } else if headers.get("origin").and_then(|v| v.to_str().ok())
+        != Some(state.config.proxy_origin.as_str())
+    {
+        return error(StatusCode::FORBIDDEN, "Invalid WebSocket origin");
+    }
     {
         let mut s = session.lock().await;
         if s.active_ws >= 8 || !s.allow() {

@@ -7,13 +7,16 @@
     "build": "tsc --noEmit -p frontend && node tools/build.mjs",
     "test": "node --test tests/integration/*.test.mjs",
     "test:e2e": "playwright test",
-    "bench": "node benchmarks/rewrite.mjs"
+    "bench": "node benchmarks/rewrite.mjs",
+    "dev:shared": "node tools/start.mjs --shared",
+    "test:isolation": "playwright test -c playwright.isolation.config.ts"
   },
   "dependencies": {
     "@babel/generator": "^7.28.0",
     "@babel/parser": "^7.28.0",
     "@babel/traverse": "^7.28.0",
     "@babel/types": "^7.28.0",
+    "@noble/hashes": "^2.4.0",
     "css-tree": "^3.2.1",
     "lightningcss": "^1.30.0",
     "parse-srcset": "^1.0.2",

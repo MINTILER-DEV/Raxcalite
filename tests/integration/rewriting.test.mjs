@@ -4,7 +4,18 @@ import vm from 'node:vm';
 import { rewriteHTML } from '../../tools/rewriting/html.mjs';
 import { rewriteJS } from '../../tools/rewriting/javascript.mjs';
 import { rewriteCSS } from '../../tools/rewriting/css.mjs';
-import { encodeURL, decodeURL } from '../../shared/url.mjs';
+import { encodeURL, decodeURL, configureMapping } from '../../shared/url.mjs';
+import { siteHash } from '../../shared/native-origin.mjs';
+test('isolated mapping is deterministic and idempotent across different native hosts', () => {
+  configureMapping({ domain:'rax.localhost',user:'0123456789abcdef01234567',proxyOrigin:'http://rax.localhost:3031' });
+  try {
+    const first = encodeURL('https://example.com/a?q=%2f', 'https://other.example/', 'http://rax.localhost:3031');
+    assert.equal(encodeURL(first, 'https://other.example/', 'http://other.rax.localhost:3031'), first);
+    assert.equal(decodeURL(first), 'https://example.com/a?q=%2f');
+    assert.equal(siteHash('ws://localhost:4040'), siteHash('http://localhost:4040'));
+    assert.notEqual(new URL(first).hostname, new URL(encodeURL('https://other.example/', 'https://other.example')).hostname);
+  } finally { configureMapping(undefined); }
+});
 import { decodeText } from '../../tools/rewriting/encoding.mjs';
 test('text decoding respects BOM, HTTP charset, HTML meta and CSS charset', () => {
   const legacy = Buffer.from('<meta charset=windows-1252><title>caf\xe9</title>', 'latin1');
