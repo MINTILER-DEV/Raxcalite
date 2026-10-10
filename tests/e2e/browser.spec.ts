@@ -2,6 +2,11 @@ import { test, expect } from '@playwright/test';
 import { encodeURL } from '../../shared/url.mjs';
 const contentOrigin = 'http://localhost:3031';
 const proxy = (url: string) => encodeURL(url,url,contentOrigin);
+test('application worker restores the shell and configuration offline',async({page,context})=>{
+  await page.goto('http://localhost:3030');await page.evaluate(()=>navigator.serviceWorker.ready);
+  await expect.poll(()=>page.evaluate(()=>!!navigator.serviceWorker.controller)).toBe(true);
+  await context.setOffline(true);await page.reload();await expect(page.locator('#home h1')).toHaveText('Raxcalite');await context.setOffline(false);
+});
 test('shell traverses native history with state intact and restores tabs', async ({page}) => {
   await page.goto('http://localhost:3030');await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
   await expect(page.frameLocator('iframe:not([hidden])').locator('h1')).toHaveText('Next page');

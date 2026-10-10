@@ -24,10 +24,7 @@ export function installNavigation() {
     if (event.source !== parent || event.origin !== config.appOrigin || event.data?.type !== 'rax:command') return;
     event.stopImmediatePropagation();
     if (event.data.command === 'history' && [-1,1].includes(event.data.delta)) {
-      const navigation = (window as any).navigation;
-      if (navigation && (event.data.delta < 0 ? navigation.canGoBack : navigation.canGoForward)) {
-        try { await (event.data.delta < 0 ? navigation.back() : navigation.forward()).finished; } catch { report('navigation','History traversal failed'); }
-      } else history.go(event.data.delta);
+      history.go(event.data.delta);
     } else if (event.data.command === 'reload') native.location.reload();
     else if (event.data.command === 'recover') {
       for (const registration of await native.workerRegistrations!()) if ((registration.active || registration.waiting || registration.installing)?.scriptURL === `${native.location.origin}/sw.js`) await registration.unregister();

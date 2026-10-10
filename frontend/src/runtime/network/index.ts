@@ -25,6 +25,10 @@ export function installNetwork() {
         original.signal.throwIfAborted(); body = new Uint8Array(size); let offset = 0;
         for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
       } finally { original.signal.removeEventListener('abort', cancel); reader.releaseLock(); }
+    } else if (!['GET','HEAD'].includes(original.method)) {
+      // Firefox exposes null for Request.body while its body readers still work.
+      body = new Uint8Array(await original.arrayBuffer());
+      if (body.byteLength > 64 * 1024 * 1024) throw new TypeError('Request body exceeds 64 MiB');
     }
     const mapped = new native.Request(map(original.url), { method: original.method, headers, body,
       credentials: 'include', mode: config.isolation ? 'cors' : 'same-origin', signal: original.signal, redirect: original.redirect,

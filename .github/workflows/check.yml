@@ -1,6 +1,35 @@
 name: Check Raxcalite
 on: [push, pull_request]
 jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: docker build -t raxcalite:test .
+      - run: >-
+          docker run -d --name raxcalite-test --network host --memory=1536m --cpus=2
+          -e RAX_APP_PORT=3040 -e RAX_PROXY_PORT=3041 -e RAX_TRANSFORM_PORT=3042
+          -e RAX_APP_ORIGIN=http://app.rax.localhost:3040 -e RAX_PROXY_ORIGIN=http://rax.localhost:3041
+          -e RAX_ISOLATION_DOMAIN=rax.localhost -e RAX_FIXTURE_HOSTS=localhost,127.0.0.1 raxcalite:test
+      - run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail http://localhost:3041/ready; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: npm run test:isolation -- --project=chromium
+        env:
+          RAX_TEST_EXTERNAL_SERVER: '1'
+      - run: docker logs raxcalite-test
+        if: always()
+      - run: docker rm --force raxcalite-test
+        if: always()
   check:
     runs-on: ubuntu-latest
     steps:
@@ -17,8 +46,9 @@ jobs:
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
       - run: npm test
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
+      - run: npm run test:isolation
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

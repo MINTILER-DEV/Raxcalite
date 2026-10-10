@@ -2,7 +2,7 @@ import {test, expect} from '@playwright/test';
 const app = 'http://app.rax.localhost:3040';
 test('classic upstream service worker owns only its isolated virtual scope',async({page})=>{
   await page.goto(app);await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
-  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url()).toBeTruthy();const frame=page.frames().find(f=>f.url().endsWith('/next'))!;
+  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url()).toBeTruthy();const frame=page.frames().find(f=>f.url().endsWith('/next'))!;await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
   const registration=await frame.evaluate(async()=>{const r=await navigator.serviceWorker.register('/site-worker.js',{scope:'/'});await navigator.serviceWorker.ready;return {scope:r.scope,script:r.active!.scriptURL}});
   expect(registration).toEqual({scope:'http://localhost:4040/',script:'http://localhost:4040/site-worker.js'});
   await expect.poll(()=>frame.evaluate(()=>!!navigator.serviceWorker.controller)).toBe(true);

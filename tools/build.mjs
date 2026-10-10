@@ -1,7 +1,13 @@
 import { build as viteBuild } from 'vite';
 import { build } from 'esbuild';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 await viteBuild({ root: 'frontend', build: { outDir: 'dist', emptyOutDir: true }, base: '/' });
 const browserDefines = { 'process.env': '{}', 'process.platform': '"browser"' };
 await build({ entryPoints: ['frontend/src/runtime/index.ts'], bundle: true, format: 'iife', target: 'es2022', define: browserDefines, outfile: 'frontend/dist/runtime.js', minify: true });
 await build({ entryPoints: ['frontend/src/runtime/worker.ts'], bundle: true, format: 'iife', target: 'es2022', define: browserDefines, outfile: 'frontend/dist/worker-runtime.js', minify: true });
-await build({ entryPoints: ['frontend/src/service-worker/index.ts'], bundle: true, format: 'iife', target: 'es2022', outfile: 'frontend/dist/sw.js' });
+const assets = (await readdir('frontend/dist/assets')).map(name=>`/assets/${name}`);
+const digest = createHash('sha256');for(const path of [...assets,'/runtime.js','/worker-runtime.js'])digest.update(await readFile('frontend/dist'+path));
+const version=digest.digest('hex').slice(0,16);
+await writeFile('frontend/dist/asset-manifest.json',JSON.stringify({assets,version}));
+await build({ entryPoints: ['frontend/src/service-worker/index.ts'], bundle: true, format: 'iife', target: 'es2022', define:{__RAX_VERSION__:JSON.stringify(version)}, outfile: 'frontend/dist/sw.js' });

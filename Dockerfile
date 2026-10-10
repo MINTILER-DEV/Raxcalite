@@ -23,8 +23,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=backend /build/target/release/raxcalite ./raxcalite
 COPY --from=frontend /build/frontend/dist ./frontend/dist
 COPY shared shared
-COPY tools/rewriting tools/rewriting
-COPY tools/transformer.mjs tools/serve.mjs tools/
+COPY tools tools
 ENV RAX_BIND=0.0.0.0 RAX_TRUSTED_GATEWAY=1
 USER node
 EXPOSE 3030 3031

@@ -3,6 +3,11 @@ import { encodeURL, decodeURL, configureMapping } from '../../../shared/url.mjs'
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const configured = (globalThis as any).__RAX_APP_CONFIG__;
 const proxyOrigin = configured?.proxyOrigin || `${location.protocol}//${location.hostname}:${Number(location.port || 3030) + 1}`;
+if (configured?.isolationDomain) {
+  const response = await fetch(`${proxyOrigin}/api/session`, {credentials:'include'}); if (!response.ok) throw new Error('Session initialization failed');
+  configureMapping((await response.json()).isolation);
+}
+
 const icons: Record<string, string> = {
   back: '<path d="m10 4-6 4 6 4M4 8h10"/>', forward: '<path d="m6 4 6 4-6 4M2 8h10"/>',
   reload: '<path d="M13 6a5 5 0 1 0 0 5M13 2v4H9"/>', plus: '<path d="M8 3v10M3 8h10"/>',
@@ -107,10 +112,6 @@ window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'b') { event.preventDefault(); collapse(!app.classList.contains('collapsed')); }
   if (event.key === 'Escape') { el('settings-panel').hidden = true; el('diagnostics-panel').hidden = true; }
 });
-if (configured?.isolationDomain) {
-  const response = await fetch(`${proxyOrigin}/api/session`, {credentials:'include'}); if (!response.ok) throw new Error('Session initialization failed');
-  configureMapping((await response.json()).isolation);
-}
 const restored=saved('rax:tabs',{urls:[]});
 for(const url of (Array.isArray(restored.urls)?restored.urls:[]).slice(0,12)){newTab();if(typeof url==='string'&&/^https?:/.test(url))navigate(url);}
 if(!tabs.length)newTab();else{selected=tabs[Math.min(Math.max(Number(restored.selected)||0,0),tabs.length-1)].id;render();}
