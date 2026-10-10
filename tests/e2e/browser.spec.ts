@@ -80,6 +80,9 @@ test('direct and proxied fixtures execute scripts, networking, state, modules, w
   await expect.poll(()=>direct.evaluate(()=> (window as any).results?.ready)).toBe(true);
   await page.goto(proxy('http://localhost:4040/'));
   await expect.poll(()=>page.evaluate(()=> (window as any).results)).toMatchObject({ready:true,worker:{value:'worker-value',method:'GET',imported:'imported-value'},moduleWorker:'module-value',socket:'socket-value',sse:'stream-value',xhr:{method:'GET'}});
+  // IndexedDB opens independently of the fixture's fetch/cache readiness flag.
+  await expect.poll(()=>page.evaluate(()=> (window as any).results?.idb)).toBe('fixture');
+  await expect.poll(()=>direct.evaluate(()=> (window as any).results?.idb)).toBe('fixture');
   const proxied=await page.evaluate(()=> (window as any).results);
   const actual=await direct.evaluate(()=> (window as any).results);
   for(const key of ['url','docURL','base','shadow','local','session','module','moduleURL','idb','cache'])expect(proxied[key],key).toEqual(actual[key]);
