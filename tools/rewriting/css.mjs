@@ -1,8 +1,8 @@
 import { transform, transformStyleAttribute } from 'lightningcss';
 import { encodeURL } from '../../shared/url.mjs';
-export function rewriteCSS(source, url, inline = false) {
+export function rewriteCSSResult(source, url, inline = false) {
   const options = {
-    filename: url, code: Buffer.from(source), minify: false,
+    filename: url, code: Buffer.from(source), minify: false, errorRecovery:true,
     visitor: {
       Url(value) { return { ...value, url: encodeURL(value.url, url) }; },
       Image(image) {
@@ -23,5 +23,7 @@ export function rewriteCSS(source, url, inline = false) {
       } }
     }
   };
-  return (inline ? transformStyleAttribute(options) : transform(options)).code.toString();
+  const result=inline ? transformStyleAttribute(options) : transform(options);
+  return {code:result.code.toString(),warnings:(result.warnings||[]).map(w=>`CSS parser recovered invalid syntax at line ${w.loc?.line??'?'} column ${w.loc?.column??'?'}`)};
 }
+export function rewriteCSS(source,url,inline=false){return rewriteCSSResult(source,url,inline).code;}

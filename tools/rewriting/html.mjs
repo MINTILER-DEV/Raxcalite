@@ -1,12 +1,13 @@
 import { parse, serialize, parseFragment } from 'parse5';
 import parseSrcset from 'parse-srcset';
 import { encodeURL } from '../../shared/url.mjs';
-import { rewriteCSS } from './css.mjs';
+import { rewriteCSSResult } from './css.mjs';
 import { rewriteJS } from './javascript.mjs';
 
 export function rewriteHTML(source, url, options = {}) {
   const document = parse(source);
   const warnings = [];
+  const rewriteCSS=(source,base,inline=false)=>{const result=rewriteCSSResult(source,base,inline);warnings.push(...result.warnings);return result.code;};
   let base = url;
   const visit = (node, fn) => { fn(node); for (const child of node.childNodes || []) visit(child, fn); if (node.content) visit(node.content, fn); };
   let foundBase = false;

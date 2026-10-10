@@ -1,5 +1,5 @@
 import { rewriteHTML } from './rewriting/html.mjs';
-import { rewriteCSS } from './rewriting/css.mjs';
+import { rewriteCSSResult } from './rewriting/css.mjs';
 import { rewriteJS } from './rewriting/javascript.mjs';
 import { encodeURL, configureMapping } from '../shared/url.mjs';
 import { decodeText } from './rewriting/encoding.mjs';
@@ -7,7 +7,7 @@ export function rewrite({ kind, source, url, debug, sourceMaps, worker, encoding
   configureMapping(isolation);
   if (encoding) source = decodeText(Buffer.from(source, 'base64'), kind, encoding);
   if (kind === 'html') return rewriteHTML(source, url, { debug, sourceMaps, isolation, appOrigin });
-  if (kind === 'css') return { code: rewriteCSS(source, url), warnings: [] };
+  if (kind === 'css') return rewriteCSSResult(source, url);
   const result = rewriteJS(source, url, { sourceMaps });
   let code = result.code;
   if (sourceMaps && result.map) code += `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(result.map)).toString('base64')}`;

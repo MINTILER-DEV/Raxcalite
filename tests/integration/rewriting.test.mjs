@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { rewriteHTML } from '../../tools/rewriting/html.mjs';
 import { rewriteJS } from '../../tools/rewriting/javascript.mjs';
-import { rewriteCSS } from '../../tools/rewriting/css.mjs';
+import { rewriteCSS, rewriteCSSResult } from '../../tools/rewriting/css.mjs';
 import { encodeURL, decodeURL, configureMapping } from '../../shared/url.mjs';
 import { siteHash } from '../../shared/native-origin.mjs';
 test('isolated mapping is deterministic and idempotent across different native hosts', () => {
@@ -42,6 +42,11 @@ test('CSS parser rewrites imports, fonts, image-set, inline values and custom pr
   const code = rewriteCSS('@import "a.css";@font-face{font-family:A;src:url(a.woff)}a{--picture:url(a.png);background:image-set(url(a.png) 1x,url(b.png) 2x)}', 'https://example.com/dir/');
   assert.match(code, /\/dir\/a.css/); assert.match(code, /\/dir\/a.woff/); assert.match(code, /\/dir\/b.png/);
   assert.match(rewriteCSS('background:url(a.png)', 'https://example.com/dir/', true), /\/dir\/a.png/);
+});
+test('CSS recovery reports invalid declarations while retaining and mapping valid resources',()=>{
+  const source='a{color:;!;background:url(/pixel.svg)}';const result=rewriteCSSResult(source,'https://example.com/');
+  assert.ok(result.warnings.length>0);assert.match(result.code,/\/p\//);assert.match(result.code,/pixel.svg/);
+  const html=rewriteHTML(`<style>${source}</style>`,'https://example.com/');assert.ok(html.warnings.length>0);assert.match(html.code,/pixel.svg/);
 });
 test('AST respects shadowing and transforms assignments, computed globals, imports and meta URL', () => {
   const source = 'const a=location.href;window["location"]="/a";function f(location){return location.href}import x from "./a.js";const b=import("./b.js");const u=import.meta.url;';
