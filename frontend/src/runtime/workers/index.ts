@@ -1,4 +1,4 @@
-import { map, report, config } from '../core/context';
+import { map, report, config, currentURL, native, getter, unmap } from '../core/context';
 export function installWorkers() {
   for (const name of ['Worker', 'SharedWorker'] as const) {
     const Constructor = globalThis[name];
@@ -20,9 +20,31 @@ export function installWorkers() {
     globalThis.importScripts = (...urls: (string | URL)[]) => importScripts(...urls.map(url => map(url)));
   }
   if (!config.worker && navigator.serviceWorker) {
-    navigator.serviceWorker.register = async () => {
-      report('workers', 'Upstream service worker registration is unsupported');
-      throw new DOMException('Upstream service workers cannot own proxy application scope', 'NotSupportedError');
+    const container = navigator.serviceWorker; const register = container.register.bind(container);
+    const getRegistration = container.getRegistration.bind(container);
+    const own = (registration?: ServiceWorkerRegistration) => registration && new URL(unmap(registration.scope)).origin === new URL(currentURL()).origin;
+    container.register = async (source, options = {}) => {
+      if (!config.isolation || options.type === 'module') {
+        report('workers', 'Upstream service workers require isolated origins and classic scripts');
+        throw new DOMException('Use an isolated origin and a classic URL-backed service worker', 'NotSupportedError');
+      }
+      const url = new URL(String(source), currentURL());const scope = new URL(String(options.scope || '.'), url);
+      if (url.origin !== new URL(currentURL()).origin || scope.origin !== url.origin || !['http:','https:'].includes(url.protocol)) throw new DOMException('Service workers require the current virtual origin', 'SecurityError');
+      const mapped = new URL(map(url));mapped.search += `${mapped.search?'&':'?'}__rax_worker=service`;
+      return register(mapped.href,{...options,scope:map(scope)});
     };
+    container.getRegistration = async (url = currentURL()) => { const registration = await getRegistration(map(url));return own(registration)?registration:undefined; };
+    container.getRegistrations = async () => (await native.workerRegistrations!()).filter(r=>own(r));
+    for (const [prototype,key] of [[ServiceWorker.prototype,'scriptURL'],[ServiceWorkerRegistration.prototype,'scope']] as const) {
+      const descriptor=Object.getOwnPropertyDescriptor(prototype,key);
+      if(descriptor?.get)getter(prototype,key,function(this:any){const value=unmap(descriptor.get!.call(this));return value.replace(/([?&])__rax_worker=service(?:&|$)/,'$1').replace(/[?&]$/,'');});
+    }
+    const controller=Object.getOwnPropertyDescriptor(ServiceWorkerContainer.prototype,'controller');
+    if(controller?.get)getter(container,'controller',()=>{const worker=controller.get!.call(container);return worker?.scriptURL===`${native.location.origin}/sw.js`?null:worker;});
+    let ready:Promise<ServiceWorkerRegistration>|undefined;
+    getter(container,'ready',()=>ready ||= new Promise(resolve=>{
+      const timer=setInterval(async()=>{const registration=await container.getRegistration();if(registration?.active){clearInterval(timer);resolve(registration)}},100);
+      addEventListener('pagehide',()=>clearInterval(timer),{once:true});
+    }));
   }
 }

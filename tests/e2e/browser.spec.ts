@@ -2,6 +2,18 @@ import { test, expect } from '@playwright/test';
 import { encodeURL } from '../../shared/url.mjs';
 const contentOrigin = 'http://localhost:3031';
 const proxy = (url: string) => encodeURL(url,url,contentOrigin);
+test('shell traverses native history with state intact and restores tabs', async ({page}) => {
+  await page.goto('http://localhost:3030');await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
+  await expect(page.frameLocator('iframe:not([hidden])').locator('h1')).toHaveText('Next page');
+  const frame=page.frames().find(f=>f.url().endsWith('/next'))!;
+  await frame.evaluate(()=>{(window as any).marker='kept';history.pushState({counter:1},'','/state');history.pushState({counter:2},'','/state?two');});
+  await expect(page.locator('#address')).toHaveValue('http://localhost:4040/state?two');await page.locator('#back').click();
+  await expect(page.locator('#address')).toHaveValue('http://localhost:4040/state');expect(await frame.evaluate(()=>({state:history.state,marker:(window as any).marker}))).toEqual({state:{counter:1},marker:'kept'});
+  await page.locator('#forward').click();await expect(page.locator('#address')).toHaveValue('http://localhost:4040/state?two');
+  expect(await frame.evaluate(()=>history.state)).toEqual({counter:2});
+  await page.locator('#new-tab').click();await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');await page.reload();
+  await expect(page.locator('.tab')).toHaveCount(2);await expect(page.locator('#address')).toHaveValue('http://localhost:4040/next');
+});
 test('DOM insertion preserves authored strings, custom elements and adopted CSS; caches map Request keys', async ({ page }) => {
   await page.goto(proxy('http://localhost:4040/next'));
   const result = await page.evaluate(async () => {

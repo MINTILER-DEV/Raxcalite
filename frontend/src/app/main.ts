@@ -13,9 +13,12 @@ const svg = (name: string) => `<svg viewBox="0 0 16 16" aria-hidden="true">${ico
 const tool = (id: string, label: string, optional = false) => `<button class="tool${optional ? ' optional' : ''}" id="${id}" aria-label="${label}" title="${label}">${svg(id)}</button>`;
 app.innerHTML = `<header class="chrome"><div class="tabs"><img class="brand" src="/icon.svg" alt="Raxcalite"><div id="tab-list" style="display:contents"></div><button class="new-tab" id="new-tab" aria-label="New tab" title="New tab">${svg('plus')}</button><span class="spacer"></span></div><nav class="toolbar" aria-label="Browser navigation">${tool('back','Back')}${tool('forward','Forward')}${tool('reload','Reload')}<form class="address" id="address-form"><span class="indicator" title="Connection status"></span><input id="address" aria-label="Address" placeholder="Search or enter address" autocomplete="off" spellcheck="false"><button type="submit" aria-label="Go">↵</button></form>${tool('diagnostics','Compatibility diagnostics',true)}${tool('settings','Settings')}${tool('hide','Collapse toolbar (Ctrl+Shift+B)')}</nav></header><button class="reveal" id="reveal" title="Show toolbar (Ctrl+L)"><img src="/icon.svg" alt="">Show controls</button><main class="viewport" id="viewport"><section class="home" id="home"><img src="/icon.svg" alt=""><h1>Raxcalite</h1><p>A little less browser. A lot more web.</p><form id="home-form"><input id="home-address" aria-label="Start browsing" placeholder="Search or enter address" autocomplete="off" spellcheck="false"><button type="submit" aria-label="Open address">${svg('go')}</button></form><kbd>Ctrl + L to go somewhere</kbd></section></main><section class="panel" id="settings-panel" aria-label="Settings" hidden><header>Settings<button data-close="settings-panel" aria-label="Close settings">×</button></header><label>Hide controls after navigation<input type="checkbox" id="auto-hide"></label><label>Appearance<select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label><button class="action" id="clear-cookies">Clear website cookies</button><button class="action" id="recover">Reset application worker</button><p>Controls: Ctrl+L · Collapse: Ctrl+Shift+B<br>${configured?.isolationDomain ? 'Websites use separate native origins.' : 'Compatibility mode shares a content origin.'}</p></section><section class="panel" id="diagnostics-panel" aria-label="Compatibility diagnostics" hidden><header>Compatibility<button data-close="diagnostics-panel" aria-label="Close diagnostics">×</button></header><div id="diagnostic-list"><p>No reported errors in this tab.</p></div></section><div class="status" id="status" role="status" hidden></div>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
-interface Tab { id: number; url: string; title: string; history: string[]; index: number; frame: HTMLIFrameElement; loading: boolean; diagnostics: { subsystem: string; message: string }[]; navigating?: boolean }
+interface Tab { id: number; url: string; title: string; history: string[]; index: number; frame: HTMLIFrameElement; loading: boolean; diagnostics: { subsystem: string; message: string }[]; navigating?: boolean; traversing?: boolean; icon?: string }
 const tabs: Tab[] = []; let selected = 0; let nextId = 0;
-const prefs = JSON.parse(localStorage.getItem('rax:preferences') || '{}');
+function saved(key:string,fallback:any) { try{return JSON.parse(localStorage.getItem(key)||'null')??fallback}catch{return fallback} }
+const prefs = saved('rax:preferences',{});
+function saveTabs() { localStorage.setItem('rax:tabs',JSON.stringify({selected:tabs.findIndex(t=>t.id===selected),urls:tabs.map(t=>t.url)})); }
+function command(tab:Tab,name:string,extra:any={}) { tab.frame.contentWindow?.postMessage({type:'rax:command',command:name,...extra},new URL(encodeURL(tab.url,tab.url,proxyOrigin)).origin); }
 function active() { return tabs.find(t => t.id === selected)!; }
 function status(message: string) { el('status').textContent = message; el('status').hidden = false; setTimeout(() => el('status').hidden = true, 4500); }
 function collapse(value: boolean) { app.classList.toggle('collapsed', value); if (value) { el('settings-panel').hidden = true; el('diagnostics-panel').hidden = true; } }
@@ -38,7 +41,7 @@ function render() {
   for (const tab of tabs) {
     const wrapper = document.createElement('div'); wrapper.className = `tab ${tab.id === selected ? 'active' : ''}`;
     const button = document.createElement('button'); button.setAttribute('aria-label', `Switch to ${tab.title}`); button.setAttribute('aria-current', String(tab.id === selected));
-    const icon = document.createElement('img'); icon.src = '/icon.svg'; icon.alt = ''; const title = document.createElement('span'); title.textContent = tab.title;
+    const icon = document.createElement('img'); icon.src = tab.icon ? encodeURL(tab.icon,tab.url,proxyOrigin) : '/icon.svg'; icon.onerror=()=>{icon.onerror=null;icon.src='/icon.svg'}; icon.alt = ''; const title = document.createElement('span'); title.textContent = tab.title;
     button.append(icon, title); button.onclick = () => { selected = tab.id; render(); };
     const close = document.createElement('button'); close.textContent = '×'; close.className = 'close'; close.setAttribute('aria-label', `Close ${tab.title}`); close.onclick = () => closeTab(tab.id);
     wrapper.append(button, close); list.append(wrapper); tab.frame.hidden = tab.id !== selected || !tab.url;
@@ -48,7 +51,7 @@ function render() {
   el('address-form').classList.toggle('loading', tab.loading);
   el<HTMLButtonElement>('back').disabled = tab.index <= 0; el<HTMLButtonElement>('forward').disabled = tab.index >= tab.history.length - 1;
   el<HTMLButtonElement>('reload').disabled = !tab.url;
-  document.title = tab.url ? `${tab.title} · Raxcalite` : 'Raxcalite'; renderDiagnostics();
+  document.title = tab.url ? `${tab.title} · Raxcalite` : 'Raxcalite'; renderDiagnostics(); saveTabs();
 }
 function newTab() {
   if (tabs.length >= 12) { status('Close a tab before opening another.'); return; }
@@ -69,9 +72,9 @@ function navigate(value: string, record = true) {
 el('address-form').onsubmit = event => { event.preventDefault(); navigate(el<HTMLInputElement>('address').value); };
 el('home-form').onsubmit = event => { event.preventDefault(); navigate(el<HTMLInputElement>('home-address').value); };
 el('new-tab').onclick = newTab; el('hide').onclick = () => collapse(true); el('reveal').onclick = () => collapse(false);
-el('back').onclick = () => { const tab = active(); if (tab.index > 0) { tab.index--; navigate(tab.history[tab.index], false); } };
-el('forward').onclick = () => { const tab = active(); if (tab.index < tab.history.length - 1) { tab.index++; navigate(tab.history[tab.index], false); } };
-el('reload').onclick = () => { if (active().url) navigate(active().url, false); };
+el('back').onclick = () => { const tab = active(); if (tab.index > 0) { tab.index--; tab.traversing=true;command(tab,'history',{delta:-1});render(); } };
+el('forward').onclick = () => { const tab = active(); if (tab.index < tab.history.length - 1) { tab.index++;tab.traversing=true;command(tab,'history',{delta:1});render(); } };
+el('reload').onclick = () => { if (active().url) command(active(),'reload'); };
 for (const name of ['settings', 'diagnostics']) el(name).onclick = () => { const panel = el(`${name}-panel`); const hidden = panel.hidden; el('settings-panel').hidden = true; el('diagnostics-panel').hidden = true; panel.hidden = !hidden; };
 for (const close of document.querySelectorAll<HTMLElement>('[data-close]')) close.onclick = () => el(close.dataset.close!).hidden = true;
 el<HTMLInputElement>('auto-hide').checked = !!prefs.autoHide;
@@ -79,15 +82,21 @@ el('auto-hide').onchange = () => { prefs.autoHide = el<HTMLInputElement>('auto-h
 el<HTMLSelectElement>('theme').value = prefs.theme || 'dark'; document.documentElement.classList.toggle('light', prefs.theme === 'light');
 el('theme').onchange = () => { prefs.theme = el<HTMLSelectElement>('theme').value; document.documentElement.classList.toggle('light', prefs.theme === 'light'); savePrefs(); };
 el('clear-cookies').onclick = async () => { try { const response = await fetch(`${proxyOrigin}/api/session/reset`, { method: 'POST', credentials: 'include' }); if (!response.ok) throw new Error(); status('Website cookies cleared.'); } catch { status('Could not clear cookies.'); } };
-el('recover').onclick = async () => { for (const worker of await navigator.serviceWorker.getRegistrations()) await worker.unregister(); for (const cache of await caches.keys()) if (cache.startsWith('rax-shell-')) await caches.delete(cache); status('Application worker reset. Reload to reinstall.'); };
+el('recover').onclick = async () => { for(const tab of tabs) if(tab.url) command(tab,'recover'); for (const worker of await navigator.serviceWorker.getRegistrations()) await worker.unregister(); for (const cache of await caches.keys()) if (cache.startsWith('rax-shell-')) await caches.delete(cache); status('Application worker reset. Reload to reinstall.'); };
 addEventListener('message', event => {
   if (event.origin !== proxyOrigin && !(configured?.isolationDomain && new URL(event.origin).hostname.endsWith('.'+configured.isolationDomain))) return;
   const tab = tabs.find(t => t.frame.contentWindow === event.source); if (!tab) return;
   if (event.data?.type === 'rax:navigation') {
     try {
       const url = new URL(event.data.url); if (!['https:', 'http:'].includes(url.protocol)) return;
-      if (tab.url !== url.href) { if (tab.navigating) tab.history[tab.index] = url.href; else { tab.history.splice(tab.index + 1); tab.history.push(url.href); tab.index++; } }
-      tab.url = url.href; tab.title = String(event.data.title || url.hostname).slice(0, 120); tab.navigating = false; tab.loading = false; render();
+      const action=event.data.action;
+      if (tab.traversing) { tab.history[tab.index]=url.href; tab.traversing=false; }
+      else if (tab.navigating) tab.history[tab.index]=url.href;
+      else if (action==='replace') tab.history[tab.index]=url.href;
+      else if (action==='push' || action==='load' || tab.url!==url.href) { tab.history.splice(tab.index+1);tab.history.push(url.href);tab.index++; }
+      tab.url=url.href;tab.title=String(event.data.title||url.hostname).slice(0,120);
+      if (typeof event.data.icon==='string') { const icon=new URL(event.data.icon,url);if(['http:','https:'].includes(icon.protocol))tab.icon=icon.href; }
+      tab.navigating=false;tab.loading=false;render();
     } catch { /* Ignore invalid messages from documents. */ }
   } else if (event.data?.type === 'rax:diagnostic') {
     const entry = event.data.entry; if (typeof entry?.subsystem === 'string' && typeof entry?.message === 'string') { tab.diagnostics.push({ subsystem: entry.subsystem.slice(0, 40), message: entry.message.slice(0, 250) }); tab.diagnostics = tab.diagnostics.slice(-100); if (selected === tab.id) renderDiagnostics(); }
@@ -102,5 +111,7 @@ if (configured?.isolationDomain) {
   const response = await fetch(`${proxyOrigin}/api/session`, {credentials:'include'}); if (!response.ok) throw new Error('Session initialization failed');
   configureMapping((await response.json()).isolation);
 }
-newTab();
+const restored=saved('rax:tabs',{urls:[]});
+for(const url of (Array.isArray(restored.urls)?restored.urls:[]).slice(0,12)){newTab();if(typeof url==='string'&&/^https?:/.test(url))navigate(url);}
+if(!tabs.length)newTab();else{selected=tabs[Math.min(Math.max(Number(restored.selected)||0,0),tabs.length-1)].id;render();}
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => status('Offline shell is unavailable. Browsing still works.'));

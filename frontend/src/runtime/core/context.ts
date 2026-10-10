@@ -10,6 +10,9 @@ export const native = {
   XMLHttpRequest: globalThis.XMLHttpRequest,
   xhrOpen: globalThis.XMLHttpRequest?.prototype.open,
   xhrSend: globalThis.XMLHttpRequest?.prototype.send,
+  workerRegistrations: typeof navigator !== 'undefined' ? navigator.serviceWorker?.getRegistrations.bind(navigator.serviceWorker) : undefined,
+  cacheKeys: globalThis.caches?.keys.bind(globalThis.caches),
+  cacheDelete: globalThis.caches?.delete.bind(globalThis.caches),
   postMessage: (typeof window !== 'undefined' ? window.postMessage : undefined) as ((this: Window, message: any, targetOrigin: string, transfer?: Transferable[]) => void) | undefined,
 };
 export let config: RuntimeConfig;

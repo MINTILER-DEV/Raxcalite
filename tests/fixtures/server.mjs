@@ -38,6 +38,7 @@ export function startFixtures(port = 4040) {
       if(url.searchParams.get('cors')==='yes') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-methods','GET, POST, PUT, PATCH, DELETE');res.setHeader('access-control-allow-headers',req.headers['access-control-request-headers']||'content-type'); }
       res.end(JSON.stringify({method:req.method,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||'',query:url.search}));
     }
+    else if (url.pathname === '/site-worker.js') { res.setHeader('content-type','text/javascript');res.end("self.skipWaiting();addEventListener('activate',event=>event.waitUntil(clients.claim()));addEventListener('fetch',event=>{if(new URL(event.request.url).pathname==='/sw-resource')event.respondWith(new Response('worker-response'));});"); }
     else if (url.pathname === '/generated') { res.setHeader('content-type','text/html');res.end(`<title>Generated scripts</title><script>
       const __rax='author';const {location:aliased}=window;
       window.generated={collision:__rax,alias:aliased.href,evalURL:eval('location.href'),functionURL:new Function('return location.href')()};

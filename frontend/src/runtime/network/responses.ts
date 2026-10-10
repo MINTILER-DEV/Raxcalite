@@ -18,11 +18,9 @@ export function responseView(response: Response, type: ResponseType, credentials
   if (opaque) void response.body?.cancel();
   const target = opaque ? new Response(null) : response;
   const headers = opaque ? immutableHeaders(new Headers()) : filteredHeaders(response.headers, type === 'cors', credentials);
-  return new Proxy(target, { get(object, key) {
-    if (key === 'headers') return headers;
-    if (key === 'type') return type;
-    if (opaque && ['status', 'statusText', 'url', 'ok', 'redirected'].includes(String(key))) return key === 'status' ? 0 : ['ok', 'redirected'].includes(String(key)) ? false : '';
-    if (key === 'clone') return () => responseView(object.clone(), type, credentials);
-    const value = Reflect.get(object, key, object); return typeof value === 'function' ? value.bind(object) : value;
-  } });
+  // Keep the actual Response brand for native consumers (Cache.put/respondWith).
+  const clone = target.clone.bind(target);
+  Object.defineProperties(target, { headers:{value:headers,configurable:true}, type:{value:type,configurable:true}, clone:{value:()=>responseView(clone(),type,credentials),configurable:true} });
+  if (opaque) for (const key of ['status','statusText','url','ok','redirected']) Object.defineProperty(target,key,{value:key==='status'?0:['ok','redirected'].includes(key)?false:'',configurable:true});
+  return target;
 }

@@ -581,6 +581,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         }
         let text = STANDARD.encode(bytes);
         let worker_kind = match worker_marker.as_deref() {
+            Some("service") if state.config.isolation_domain.is_some() => Some("service"),
             Some("module") => Some("module"),
             Some("classic") => Some("classic"),
             _ if ["worker", "sharedworker"].contains(&destination)
@@ -607,6 +608,12 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         )
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+        if worker_kind == Some("service") {
+            response_headers.insert(
+                "service-worker-allowed",
+                HeaderValue::from_str(&url_mapping::encode(&target.join("/").unwrap())).unwrap(),
+            );
+        }
         response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         response_headers.insert(
             header::CONTENT_TYPE,

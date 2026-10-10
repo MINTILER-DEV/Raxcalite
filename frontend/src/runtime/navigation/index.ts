@@ -1,4 +1,4 @@
-import { currentURL, map, report, native } from '../core/context';
+import { currentURL, map, report, native, config } from '../core/context';
 export function installNavigation() {
   for (const key of ['pushState', 'replaceState'] as const) {
     const original = history[key].bind(history);
@@ -8,16 +8,33 @@ export function installNavigation() {
         if (target.origin !== new URL(currentURL()).origin) throw new DOMException('Virtual history requires the same origin', 'SecurityError');
         original(data, unused, map(target));
       } else original(data, unused, url);
-      notify();
+      notify(key === 'pushState' ? 'push' : 'replace');
     };
   }
   const originalOpen = window.open.bind(window);
   window.open = (url?: string | URL, target?: string, features?: string) => originalOpen(url ? map(url) : url, target, features);
-  const notify = () => {
-    if (parent !== window) native.postMessage!.call(parent, { type: 'rax:navigation', url: currentURL(), title: document.title }, '*');
+  const notify = (action = 'update') => {
+    const icon = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.href;
+    if (parent !== window) native.postMessage!.call(parent, { type: 'rax:navigation', action, url: currentURL(), title: document.title, icon }, config.appOrigin || '*');
   };
-  addEventListener('popstate', notify); addEventListener('hashchange', notify); addEventListener('DOMContentLoaded', notify);
-  new MutationObserver(notify).observe(document.querySelector('title') || document.documentElement, { childList: true, subtree: true, characterData: true });
+  addEventListener('popstate', () => notify('traverse')); addEventListener('hashchange', () => notify('update')); addEventListener('DOMContentLoaded', () => notify('load'));
+  addEventListener('pageshow', event => { if ((event as PageTransitionEvent).persisted) notify('traverse'); });
+  new MutationObserver(() => notify()).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes:true, attributeFilter:['href','rel'] });
+  addEventListener('message', async event => {
+    if (event.source !== parent || event.origin !== config.appOrigin || event.data?.type !== 'rax:command') return;
+    event.stopImmediatePropagation();
+    if (event.data.command === 'history' && [-1,1].includes(event.data.delta)) {
+      const navigation = (window as any).navigation;
+      if (navigation && (event.data.delta < 0 ? navigation.canGoBack : navigation.canGoForward)) {
+        try { await (event.data.delta < 0 ? navigation.back() : navigation.forward()).finished; } catch { report('navigation','History traversal failed'); }
+      } else history.go(event.data.delta);
+    } else if (event.data.command === 'reload') native.location.reload();
+    else if (event.data.command === 'recover') {
+      for (const registration of await native.workerRegistrations!()) if ((registration.active || registration.waiting || registration.installing)?.scriptURL === `${native.location.origin}/sw.js`) await registration.unregister();
+      for (const key of await native.cacheKeys!()) if (key.startsWith('rax-shell-') || key.startsWith('rax-content-')) await native.cacheDelete!(key);
+      native.postMessage!.call(parent,{type:'rax:recovered'},config.appOrigin!);
+    }
+  }, true);
   addEventListener('error', e => report('javascript', e.message || 'Resource failed to load'));
   addEventListener('unhandledrejection', () => report('javascript', 'Unhandled promise rejection'));
   window.addEventListener('keydown', event => {
