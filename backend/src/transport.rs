@@ -21,7 +21,13 @@ pub async fn proxy(State(state): State<AppState>, request: Request) -> Response 
 async fn do_proxy(state: AppState, request: Request) -> Result<Response, (StatusCode, String)> {
     let fail = |m: &str| (StatusCode::BAD_GATEWAY, m.to_owned());
     let permit = state.limit.clone().try_acquire_owned().map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Proxy concurrency limit reached".into()))?;
-    let target = url_mapping::decode(request.uri().path(), request.uri().query()).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let mut target = url_mapping::decode(request.uri().path(), request.uri().query()).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let worker_marker = target.query_pairs().find(|(key, _)| key == "__rax_worker").map(|(_, value)| value.into_owned());
+    if worker_marker.is_some() {
+        let pairs: Vec<_> = target.query_pairs().filter(|(key, _)| key != "__rax_worker").map(|(key, value)| (key.into_owned(), value.into_owned())).collect();
+        target.set_query(None);
+        if !pairs.is_empty() { target.query_pairs_mut().extend_pairs(pairs); }
+    }
     security::validate_url(&target, &state.config.fixture_hosts).map_err(|e| (StatusCode::FORBIDDEN, e))?;
     if !matches!(target.scheme(), "http" | "https") { return Err((StatusCode::BAD_REQUEST, "Use the WebSocket route for sockets".into())); }
     let (parts, body) = request.into_parts();
@@ -85,7 +91,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         let mut bytes = Vec::new(); let mut stream = upstream.bytes_stream();
         while let Some(chunk) = stream.next().await { let chunk = chunk.map_err(|_| fail("Upstream body failed"))?; if bytes.len() + chunk.len() > 4 * 1024 * 1024 { return Err((StatusCode::PAYLOAD_TOO_LARGE, "Transformable response exceeds 4 MiB".into())); } bytes.extend_from_slice(&chunk); }
         let text = String::from_utf8(bytes).map_err(|_| fail("Text response is not UTF-8; this encoding is unsupported"))?;
-        let worker_kind = if ["worker", "sharedworker"].contains(&destination) { Some(if parts.headers.get("x-rax-worker").and_then(|v| v.to_str().ok()) == Some("module") { "module" } else { "classic" }) } else if parts.uri.query().is_some_and(|q| q.contains("__rax_worker=module")) { Some("module") } else if parts.uri.query().is_some_and(|q| q.contains("__rax_worker=classic")) { Some("classic") } else { None };
+        let worker_kind = match worker_marker.as_deref() { Some("module") => Some("module"), Some("classic") => Some("classic"), _ if ["worker", "sharedworker"].contains(&destination) => Some("classic"), _ => None };
         let result = rewriting::rewrite(&state, Transform { kind: kind.unwrap(), source: &text, url: target.as_str(), debug: false, source_maps: std::env::var("RAX_SOURCE_MAPS").is_ok(), worker: worker_kind }).await.map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
         response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         response_headers.insert(header::CONTENT_TYPE, HeaderValue::from_str(&format!("{mime}; charset=utf-8")).unwrap());

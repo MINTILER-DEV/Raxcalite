@@ -9,6 +9,11 @@ export function decodeOrigin(token) {
   return new TextDecoder().decode(Uint8Array.from(raw, c => c.charCodeAt(0)));
 }
 export function encodeURL(input, base, proxyOrigin = '') {
+  const raw = String(input);
+  const mapped = /^\/(p|ws)\/([^/]+)(?:\/|$)/.exec(raw);
+  if (mapped) {
+    try { if (['http:', 'https:', 'ws:', 'wss:'].includes(new URL(decodeOrigin(mapped[2])).protocol)) return proxyOrigin + raw; } catch { /* An upstream path can resemble a proxy route. */ }
+  }
   const url = new URL(input, base);
   if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return url.href;
   if (proxyOrigin && url.origin === proxyOrigin && /^\/(p|ws)\//.test(url.pathname)) return url.href;
