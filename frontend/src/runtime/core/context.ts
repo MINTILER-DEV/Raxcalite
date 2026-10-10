@@ -36,7 +36,7 @@ export function unmap(input: string): string {
   if(!input)return input;
   const decoded=decodeURL(input,native.location.origin);
   const url=new URL(decoded);
-  if(url.origin===native.location.origin && !/^\/(?:p|ws)\//.test(url.pathname)) {
+  if(['http:','https:'].includes(url.protocol) && url.origin===native.location.origin && !/^\/(?:p|ws)\//.test(url.pathname)) {
     const virtual=new URL(config.url);virtual.pathname=url.pathname;virtual.search=url.search;virtual.hash=url.hash;return virtual.href;
   }
   return decoded;

@@ -6,6 +6,8 @@ test('location aliases, suppressed referrers, raw native paths and data fetches 
   await expect.poll(()=>frame.evaluate(()=>(window as any).aliasResults)).toEqual({url:'http://localhost:4040/native-aliases',optional:'http://localhost:4040/native-aliases',document:'http://localhost:4040/native-aliases',extracted:'http://localhost:4040/native-aliases',plain:'plain',cookie:'bridge=yes'});
   await expect.poll(()=>frame.evaluate(()=>(window as any).portResult)).toEqual({value:'one argument'});expect(await frame.evaluate(()=>(window as any).messageArguments)).toBe(1);expect(await frame.evaluate(()=>document.domain)).toBe('localhost');
   expect(await frame.evaluate(async()=>await(await fetch('data:text/plain,data-value')).text())).toBe('data-value');
+  expect(await frame.evaluate(async()=>{const url=URL.createObjectURL(new Blob(['blob-value']));try{return await(await fetch(url)).text();}finally{URL.revokeObjectURL(url);}})).toBe('blob-value');
+  expect(await frame.evaluate(()=>{const url=URL.createObjectURL(new Blob(['postMessage(1)']));try{new Worker(url);return '';}catch(e){return(e as DOMException).name;}finally{URL.revokeObjectURL(url);}})).toBe('NotSupportedError');
   const xhr=await frame.evaluate(()=>new Promise(resolve=>{const x=new XMLHttpRequest();x.open('GET','http://127.0.0.1:4040/api/echo?cors=yes');x.responseType='json';x.onload=()=>resolve({credentials:x.withCredentials,status:x.status,origin:x.response.origin,cookie:x.response.cookie});x.onerror=()=>resolve({status:x.status});x.send();}));
   expect(xhr).toEqual({credentials:false,status:200,origin:'http://localhost:4040',cookie:''});
   const nativeHost=new URL(frame.url()).origin;
