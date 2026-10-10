@@ -33,7 +33,7 @@ export function startFixtures(port = 4040) {
     else if (url.pathname === '/worker-import.js') { res.setHeader('content-type','text/javascript'); res.end('self.imported="imported-value";'); }
     else if (url.pathname === '/module-worker.js') { res.setHeader('content-type','text/javascript'); res.end('import {value} from "/module.js";postMessage(value);'); }
     else if (url.pathname === '/pixel.svg') { res.setHeader('content-type','image/svg+xml');res.end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>'); }
-    else if (url.pathname === '/api/echo') {
+    else if (url.pathname === '/api/echo' || url.pathname === '/protected/echo') {
       res.setHeader('content-type','application/json');
       if(url.searchParams.get('cors')==='yes') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-methods','GET, POST, PUT, PATCH, DELETE');res.setHeader('access-control-allow-headers',req.headers['access-control-request-headers']||'content-type'); }
       res.end(JSON.stringify({method:req.method,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||'',query:url.search}));
@@ -46,7 +46,7 @@ export function startFixtures(port = 4040) {
     else if (url.pathname === '/binary') { res.setHeader('content-type','application/octet-stream');res.end(Buffer.from([0,1,2,255])); }
     else if (url.pathname === '/large') { res.setHeader('content-type','application/octet-stream'); for(let i=0;i<32;i++)res.write(Buffer.alloc(256*1024,42));res.end(); }
     else if (url.pathname === '/events') { res.writeHead(200,{'content-type':'text/event-stream'});res.end('data: stream-value\n\n'); }
-    else if (url.pathname === '/cookie') { res.setHeader('set-cookie',['server=yes; Path=/; HttpOnly','visible=yes; Path=/; SameSite=Lax']);res.setHeader('content-type','text/html');res.end(html); }
+    else if (url.pathname === '/cookie') { res.setHeader('set-cookie',['server=yes; Path=/; HttpOnly','secret_path=yes; Path=/protected; HttpOnly','visible=yes; Path=/; SameSite=Lax']);res.setHeader('content-type','text/html');res.end(html); }
     else if (url.pathname === '/next') { res.setHeader('content-type','text/html');res.end('<title>Next fixture</title><h1>Next page</h1><a href="/">Home</a>'); }
     else if (url.pathname === '/frame') { res.setHeader('content-type','text/html');res.end('<title>Frame fixture</title><iframe src="http://127.0.0.1:4040/child"></iframe><script>addEventListener("message",e=>{window.messageResult={data:e.data,origin:e.origin}})</script>'); }
     else if (url.pathname === '/child') { res.setHeader('content-type','text/html');res.end('<script>parent.postMessage("child-value","http://localhost:4040")</script>'); }

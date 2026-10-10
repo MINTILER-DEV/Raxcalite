@@ -23,10 +23,26 @@ pub async fn upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let target = match url_mapping::decode(uri.path(), uri.query()) {
+    let mut target = match url_mapping::decode(uri.path(), uri.query()) {
         Ok(u) => u,
         Err(e) => return error(StatusCode::BAD_REQUEST, e),
     };
+    let sender = target
+        .query_pairs()
+        .find(|(key, _)| key == "__rax_origin")
+        .and_then(|(_, value)| url::Url::parse(&value).ok());
+    let remaining = target
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter(|pair| pair.split('=').next() != Some("__rax_origin"))
+        .collect::<Vec<_>>()
+        .join("&");
+    target.set_query(if remaining.is_empty() {
+        None
+    } else {
+        Some(&remaining)
+    });
     if !matches!(target.scheme(), "ws" | "wss") {
         return error(StatusCode::BAD_REQUEST, "Invalid socket protocol");
     }
@@ -69,12 +85,30 @@ pub async fn upgrade(
             .headers_mut()
             .insert("sec-websocket-protocol", protocols.clone());
     }
+    let mut cookie_target = target.clone();
+    cookie_target
+        .set_scheme(if target.scheme() == "wss" {
+            "https"
+        } else {
+            "http"
+        })
+        .ok();
+    let same_origin = sender
+        .as_ref()
+        .is_some_and(|s| s.origin() == cookie_target.origin());
     let cookie = session
         .lock()
         .await
         .cookies
-        .get_request_values(&target)
-        .map(|(k, v)| format!("{k}={v}"))
+        .matches(&cookie_target)
+        .into_iter()
+        .filter(|cookie| {
+            same_origin
+                || cookie
+                    .same_site()
+                    .is_some_and(|s| format!("{s:?}") == "None")
+        })
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
         .collect::<Vec<_>>()
         .join("; ");
     if !cookie.is_empty()
@@ -82,17 +116,15 @@ pub async fn upgrade(
     {
         request.headers_mut().insert("cookie", value);
     }
-    let mut origin = target.clone();
-    origin
-        .set_scheme(if target.scheme() == "wss" {
-            "https"
-        } else {
-            "http"
-        })
-        .ok();
     request.headers_mut().insert(
         "origin",
-        origin.origin().ascii_serialization().parse().unwrap(),
+        sender
+            .as_ref()
+            .unwrap_or(&cookie_target)
+            .origin()
+            .ascii_serialization()
+            .parse()
+            .unwrap(),
     );
     let mut socket_config = WebSocketConfig::default();
     socket_config.max_message_size = Some(4 * 1024 * 1024);

@@ -18,7 +18,7 @@ const tabs: Tab[] = []; let selected = 0; let nextId = 0;
 const prefs = JSON.parse(localStorage.getItem('rax:preferences') || '{}');
 function active() { return tabs.find(t => t.id === selected)!; }
 function status(message: string) { el('status').textContent = message; el('status').hidden = false; setTimeout(() => el('status').hidden = true, 4500); }
-function collapse(value: boolean) { app.classList.toggle('collapsed', value); }
+function collapse(value: boolean) { app.classList.toggle('collapsed', value); if (value) { el('settings-panel').hidden = true; el('diagnostics-panel').hidden = true; } }
 function focusAddress() { collapse(false); el<HTMLInputElement>('address').focus(); el<HTMLInputElement>('address').select(); }
 function savePrefs() { localStorage.setItem('rax:preferences', JSON.stringify(prefs)); }
 function normalize(value: string) {

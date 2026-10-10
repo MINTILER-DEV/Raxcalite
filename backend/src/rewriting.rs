@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 pub struct Transform<'a> {
+    pub cache: bool,
     pub kind: &'a str,
     pub source: &'a str,
     pub url: &'a str,

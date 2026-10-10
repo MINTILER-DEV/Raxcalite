@@ -51,6 +51,7 @@ export function installNetwork() {
     const url = new URL(String(args[0]), currentURL());
     if (url.protocol === 'http:') url.protocol = 'ws:'; if (url.protocol === 'https:') url.protocol = 'wss:';
     const translated = new URL(map(url)); translated.protocol = native.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    translated.search += `${translated.search ? '&' : '?'}__rax_origin=${encodeURIComponent(new URL(currentURL()).origin)}`;
     return Reflect.construct(Target, [translated.href, ...args.slice(1)]);
   } });
   if (globalThis.EventSource) { const Source = globalThis.EventSource; globalThis.EventSource = new Proxy(Source, { construct(Target, args) { return Reflect.construct(Target, [map(args[0]), ...args.slice(1)]); } }); }

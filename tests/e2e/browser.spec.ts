@@ -32,6 +32,8 @@ test('HttpOnly cookies stay server-side and independent contexts use separate se
   await expect.poll(()=>page.evaluate(()=> (window as any).results?.ready)).toBe(true);
   const result=await page.evaluate(()=>({cookie:document.cookie,network:(window as any).results.fetch.cookie}));
   expect(result.cookie).toContain('visible=yes');expect(result.cookie).not.toContain('server=yes');expect(result.network).toContain('server=yes');
+  const protectedCookie=await page.evaluate(async()=>{document.cookie='secret_path=hacked; Path=/protected';document.cookie='created=bad; HttpOnly=true';return await(await fetch('/protected/echo')).json()});
+  expect(protectedCookie.cookie).toContain('secret_path=yes');expect(protectedCookie.cookie).not.toContain('created=bad');
   const isolated=await browser.newContext();const other=await isolated.newPage();await other.goto(proxy('http://localhost:4040/'));
   await expect.poll(()=>other.evaluate(()=> (window as any).results?.ready)).toBe(true);
   expect(await other.evaluate(()=> (window as any).results.fetch.cookie)).not.toContain('server=yes');await isolated.close();

@@ -83,15 +83,18 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         .find(|(key, _)| key == "__rax_worker")
         .map(|(_, value)| value.into_owned());
     if worker_marker.is_some() {
-        let pairs: Vec<_> = target
-            .query_pairs()
-            .filter(|(key, _)| key != "__rax_worker")
-            .map(|(key, value)| (key.into_owned(), value.into_owned()))
-            .collect();
-        target.set_query(None);
-        if !pairs.is_empty() {
-            target.query_pairs_mut().extend_pairs(pairs);
-        }
+        let remaining = target
+            .query()
+            .unwrap_or("")
+            .split('&')
+            .filter(|pair| pair.split('=').next() != Some("__rax_worker"))
+            .collect::<Vec<_>>()
+            .join("&");
+        target.set_query(if remaining.is_empty() {
+            None
+        } else {
+            Some(&remaining)
+        });
     }
     security::validate_url(&target, &state.config.fixture_hosts)
         .map_err(|e| (StatusCode::FORBIDDEN, e))?;
@@ -176,7 +179,11 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         outgoing.insert(name.clone(), value.clone());
     }
     if let Some(referrer) = &referer
-        && let Ok(value) = HeaderValue::from_str(referrer.as_str())
+        && let Ok(value) = HeaderValue::from_str(&if referrer.origin() == target.origin() {
+            referrer.as_str().to_owned()
+        } else {
+            format!("{}/", referrer.origin().ascii_serialization())
+        })
     {
         outgoing.insert(header::REFERER, value);
     }
@@ -209,12 +216,20 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             );
         }
     }
-    let body = to_bytes(body, 8 * 1024 * 1024).await.map_err(|_| {
-        (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "Request body exceeds 8 MiB".into(),
-        )
-    })?;
+    let body = tokio::time::timeout(state.config.timeout, to_bytes(body, 8 * 1024 * 1024))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                "Request body read timed out".into(),
+            )
+        })?
+        .map_err(|_| {
+            (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Request body exceeds 8 MiB".into(),
+            )
+        })?;
     if let Some(origin) = &cors_origin {
         let unsafe_headers = crate::cors::unsafe_headers(&outgoing);
         if !["GET", "HEAD", "POST"].contains(&parts.method.as_str()) || !unsafe_headers.is_empty() {
@@ -256,6 +271,9 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             }
         }
     }
+    let cacheable_request = parts.method == axum::http::Method::GET
+        && !outgoing.contains_key(header::COOKIE)
+        && !outgoing.contains_key(header::AUTHORIZATION);
     let upstream = state
         .client
         .request(parts.method.clone(), target.clone())
@@ -290,6 +308,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             if let Ok(raw) = value.to_str()
                 && raw.len() <= 4096
                 && jar.cookies.iter_any().count() < 128
+                && crate::cookies::validate(raw, &target, false, &jar.cookies).is_ok()
             {
                 let _ = jar.cookies.parse(raw, &target);
             }
@@ -359,16 +378,20 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             continue;
         }
         if transformed
+            && kind == Some("html")
             && matches!(
                 n,
                 "content-security-policy"
                     | "content-security-policy-report-only"
                     | "x-frame-options"
-                    | "etag"
-                    | "content-md5"
-                    | "content-length"
-                    | "content-encoding"
-                    | "accept-ranges"
+            )
+        {
+            continue;
+        }
+        if transformed
+            && matches!(
+                n,
+                "etag" | "content-md5" | "content-length" | "content-encoding" | "accept-ranges"
             )
         {
             continue;
@@ -434,6 +457,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         let result = rewriting::rewrite(
             &state,
             Transform {
+                cache: cacheable_request && !upstream_headers.contains_key(header::SET_COOKIE),
                 kind: kind.unwrap(),
                 source: &text,
                 url: target.as_str(),
@@ -578,11 +602,12 @@ pub async fn write_cookie(
     };
     // Page scripts cannot create HttpOnly cookies or overwrite existing HttpOnly cookies.
     if input.value.len() > 4096
-        || input
-            .value
-            .split(';')
-            .skip(1)
-            .any(|p| p.trim().eq_ignore_ascii_case("httponly"))
+        || input.value.split(';').skip(1).any(|p| {
+            p.trim()
+                .split('=')
+                .next()
+                .is_some_and(|name| name.eq_ignore_ascii_case("httponly"))
+        })
     {
         return error(StatusCode::BAD_REQUEST, "Invalid script cookie");
     }
@@ -590,13 +615,8 @@ pub async fn write_cookie(
     if !jar.allow() || jar.cookies.iter_any().count() >= 128 {
         return error(StatusCode::TOO_MANY_REQUESTS, "Cookie jar limit reached");
     }
-    let name = input.value.split('=').next().unwrap_or("").trim();
-    if jar
-        .cookies
-        .iter_any()
-        .any(|c| c.name() == name && c.matches(&target) && c.http_only() == Some(true))
-    {
-        return error(StatusCode::FORBIDDEN, "HttpOnly cookie is protected");
+    if let Err(message) = crate::cookies::validate(&input.value, &target, true, &jar.cookies) {
+        return error(StatusCode::FORBIDDEN, message);
     }
     match jar.cookies.parse(&input.value, &target) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),

@@ -14,7 +14,7 @@ export function rewrite({ kind, source, url, debug, sourceMaps, worker }) {
   if (worker) {
     const config = JSON.stringify({ url, base: url, worker: true }).replaceAll('<', '\\u003c');
     if (worker === 'module') {
-      const entry = new URL(url); entry.searchParams.set('__rax_worker', 'body');
+      const entry = new URL(url); entry.search += `${entry.search ? '&' : '?'}__rax_worker=body`;
       // Initialize before evaluating static dependencies; those modules may immediately use browser APIs.
       code = `import '/worker-runtime.js';globalThis.__rax.initialize(${config});await import(${JSON.stringify(encodeURL(entry.href, url))});`;
     } else code = `globalThis.__RAX_CONFIG__=${config};importScripts('/worker-runtime.js');\n${code}`;
@@ -29,12 +29,14 @@ export function startTransformer(port = 3032, token = process.env.RAX_TRANSFORM_
       const chunks = []; let size = 0;
       for await (const chunk of req) { size += chunk.length; if (size > 12 * 1024 * 1024) throw new Error('Transform input limit exceeded'); chunks.push(chunk); }
       const input = Buffer.concat(chunks).toString();
+      const parsed = JSON.parse(input);
+      const cacheable = parsed.cache !== false;
       const key = createHash('sha256').update(input).digest('hex');
-      let result = cache.get(key);
+      let result = cacheable ? cache.get(key) : undefined;
       if (!result) {
-        result = JSON.stringify(rewrite(JSON.parse(input)));
+        result = JSON.stringify(rewrite(parsed));
         while (cacheBytes + result.length > 32 * 1024 * 1024 && cache.size) { const [k, v] = cache.entries().next().value; cache.delete(k); cacheBytes -= v.length; }
-        if (result.length <= 32 * 1024 * 1024) { cache.set(key, result); cacheBytes += result.length; }
+        if (cacheable && result.length <= 32 * 1024 * 1024) { cache.set(key, result); cacheBytes += result.length; }
       }
       res.writeHead(200, { 'content-type': 'application/json' }).end(result);
     } catch (error) {

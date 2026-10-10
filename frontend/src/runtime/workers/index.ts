@@ -6,7 +6,7 @@ export function installWorkers() {
     globalThis[name] = new Proxy(Constructor, { construct(Target, args) {
       const source = map(args[0]);
       if (source.startsWith('blob:') || source.startsWith('data:')) { report('workers', 'Blob/data worker code cannot be safely transformed'); throw new DOMException('Use a URL-backed worker', 'NotSupportedError'); }
-      const url = new URL(source); url.searchParams.set('__rax_worker', args[1]?.type === 'module' ? 'module' : 'classic');
+      const url = new URL(source); url.search += `${url.search ? '&' : '?'}__rax_worker=${args[1]?.type === 'module' ? 'module' : 'classic'}`;
       const options = name === 'SharedWorker' && typeof args[1] === 'string' ? { name: `${new URL(config.url).origin}:${args[1]}` } : { ...args[1] };
       if (name === 'SharedWorker') options.name = `${new URL(config.url).origin}:${options.name || ''}`;
       const worker = Reflect.construct(Target, [url.href, options]);
