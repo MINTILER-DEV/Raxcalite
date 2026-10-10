@@ -85,8 +85,12 @@ export function installDOM() {
   }
   const inner = Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML')!;
   const append = Node.prototype.appendChild;
+  const inertDocument=document.implementation.createHTMLDocument('');
   const markup = (text: string, context: Element) => {
-    const range=context.ownerDocument.createRange();range.selectNodeContents(context);
+    // Parsing in the active registry constructs author custom elements before
+    // serialization, then constructs them again during the real insertion.
+    const inertContext=inertDocument.importNode(context,false);
+    const range=inertDocument.createRange();range.selectNodeContents(inertContext);
     const fragment=range.createContextualFragment(String(text));fixTree(fragment);
     const template=context.ownerDocument.createElement('template');append.call(template.content,fragment);
     return inner.get!.call(template);
