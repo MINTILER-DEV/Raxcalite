@@ -2,7 +2,7 @@
 
 A compact browser interface backed by a Rust rewriting proxy and a TypeScript compatibility runtime. Tabs and navigation occupy **66 px**. Collapse them to a **25 px handle**, or enable automatic hiding in Settings. Proxied pages fill the remaining viewport. Includes a custom SVG app icon, address/search input, back/forward/reload, tabs, diagnostics, dark/light themes and application-worker recovery.
 
-This is a working, tested compatibility layer. It does **not** reproduce every browser API or provide native security isolation between virtual websites. Read [compatibility](docs/compatibility.md) and [security](docs/security.md) before using sensitive accounts or deploying a shared instance.
+This is a working, tested compatibility layer. The default mode assigns a separate native browser origin to each user and virtual site. It does **not** reproduce every browser API or the original site's native identity. Read [compatibility](docs/compatibility.md) and [security](docs/security.md) before using sensitive accounts or deploying a shared instance.
 
 ## Run locally
 
@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://localhost:3030**. The first run compiles Rust. Keep this terminal running. `npm run dev` builds Vite and both runtime bundles, starts an authenticated loopback transformer, and launches the Rust backend. It does not provide hot reload; restart after source edits.
+Open **http://app.rax.localhost:3030** (localhost:3030 redirects there). The first run compiles Rust. Keep this terminal running. `npm run dev` builds Vite and both runtime bundles, starts an authenticated loopback transformer, and launches the Rust backend. It does not provide hot reload; restart after source edits.
 
 To use a release build:
 
@@ -32,19 +32,25 @@ npm run build
 cargo test
 cargo clippy --all-targets -- -D warnings
 npm test
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 npm run test:e2e
+npm run test:isolation
+npm run test:https
+cargo build
+node tests/operations.mjs
 ```
 
-Playwright launches controlled fixture websites and the proxy. Private fixture hosts are authorized only in that test process. The tests compare direct and proxied execution and cover HTML/CSS, JavaScript, fetch/Request/XHR, HTTP methods, forms, cookies, origin storage, IndexedDB, Cache Storage, history, frames/messaging, workers, dynamic imports, WebSockets, SSE, redirects, binary/range responses, cancellation, unsafe destinations, DOM/CSSOM insertion, compact/mobile UI and service-worker recovery. Linux may need `npx playwright install --with-deps chromium`.
+Playwright launches controlled fixture websites and the proxy. Private fixture hosts are authorized only in that test process. The tests compare direct and proxied execution and cover HTML/CSS, JavaScript, fetch/Request/XHR, HTTP methods, forms, cookies, origin storage, IndexedDB, Cache Storage, history, frames/messaging, workers, dynamic imports, WebSockets, SSE, redirects, binary/range responses, cancellation, unsafe destinations, DOM/CSSOM insertion, compact/mobile UI and service-worker recovery. Linux needs `npx playwright install --with-deps chromium firefox webkit`. HTTPS tests generate an ignored, short-lived local certificate using OpenSSL. The general suite also exercises the explicit `npm run dev:shared` compatibility mode; use the default isolated mode for actual browsing.
 
 ```sh
 npm run bench
 cargo build
 node benchmarks/system.mjs
+node benchmarks/load.mjs
+node benchmarks/cohort.mjs
 ```
 
-The second benchmark starts and stops its own fixture/backend processes; ports 3031, 3032 and 4040 must be free. Measurements and methodology are in [performance](docs/performance.md).
+The second benchmark starts and stops its own fixture/backend processes; ports 3030-3032 and 4040 must be free. Load and public-site benchmarks use 3080-3082/4080 and 3070-3072 respectively. Measurements and methodology are in [performance](docs/performance.md).
 
 ## Source map
 
@@ -59,4 +65,4 @@ The second benchmark starts and stops its own fixture/backend processes; ports 3
 | `tests` | Controlled fixture sites, parser tests and browser regression suite |
 | `benchmarks` | Reproducible transformation, download and browser measurements |
 
-Read [architecture](docs/architecture.md), [header policy and trust model](docs/security.md), and [remaining work](docs/remaining-work.md). GitHub Actions runs build, Rust/parser tests and Playwright on pushes and pull requests.
+Read [architecture](docs/architecture.md), [header policy and trust model](docs/security.md), and [remaining work](docs/remaining-work.md). GitHub Actions runs Rust/parser checks, all three browser engines, isolated routing, HTTPS gateway tests, operational shutdown checks and a non-root Docker build/browser test on pushes and pull requests.

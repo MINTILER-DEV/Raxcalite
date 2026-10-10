@@ -1,53 +1,47 @@
 # Security and trust model
 
-Use Raxcalite as a compatibility tool for sites you trust, within a private instance. The shell and content origins are separate, so native origin checks protect direct access to shell DOM/storage. All **virtual websites within the content origin still share a real origin**. A malicious upstream page can recover native APIs from a same-origin realm, forge virtual request metadata, inspect native storage namespaces, or attack another content frame. Runtime checks, namespacing, sandbox attributes and postMessage envelopes cannot reproduce the browser's native site isolation. Do not treat them as a hostile-site security boundary.
+Default routing assigns distinct native origins to each user/site pair and to the shell. Native origin checks protect frame DOM, workers and storage. The server authenticates the session and verifies target Host; virtual source assertions must agree with native Origin/Referer. Fresh unpatched browser realms cannot forge another virtual site's identity. See [native-origin contract](native-origins.md).
 
-For stronger isolation, the next architecture should allocate a dedicated native content origin per upstream site (and potentially per user), with wildcard DNS/TLS, origin-aware routing, separate service-worker scopes and a cookie credential broker that does not trust client origin assertions. That requires an additional protocol/deployment migration; it is not implemented here.
+Shared mode places virtual sites on one native origin and is suitable only for trusted testing. Namespaces/runtime checks cannot make that mode a hostile-site boundary. Even isolated mode does not give an upstream site its original native identity or constitute an independent security audit. The dedicated parent cookie domain must contain no unrelated services; browser parent-domain cookie capabilities retain cookie-poisoning/denial-of-service risks.
 
-## Upstream enforcement
+## Enforcement
 
-- Only HTTP(S)/WS(S) destinations; URLs with credentials are rejected.
-- Default public upstream ports are 80 and 443.
-- Literal private, loopback, link-local, multicast, unspecified, reserved and documentation IPs are blocked. IPv4-mapped IPv6 and common transition tunnels are checked.
-- Reqwest uses a custom DNS resolver that rejects a hostname if any resolved address is unsafe. Validated addresses are the addresses used to connect, closing the separate-check/separate-resolution rebinding gap. HTTP redirects are exposed as mapped redirects only after validation; the next request validates DNS again. Automatic server-side redirects and ambient system proxies are disabled.
-- WebSocket destinations resolve and validate once, then connect to those socket addresses with the original hostname used for TLS. Relay text/binary/ping/pong/close frames use bounded, backpressured native streams.
-- `RAX_FIXTURE_HOSTS` grants an explicit host exception for controlled local tests, including that host's private addresses and ports. **Never set it in deployed instances.**
-- Cookie jars are per session and destination; original browser Cookie headers are never forwarded. Cross-virtual-origin Authorization headers are removed. Secure/HttpOnly/Domain/Path/expiry/Max-Age use the cookie jar's semantics, with a bundled public-suffix list, cookie-prefix validation and script overwrite protection across paths. Cross-virtual-origin requests conservatively send only explicit SameSite=None cookies; registrable-domain SameSite equivalence and top-navigation Lax exceptions are not implemented.
-- Virtual CORS validates upstream allow-origin/credentials and performs preflights for non-simple methods/headers. These are compatibility checks, not authentication for malicious content. Fetch turns virtual CORS rejection into a network error; XHR event fidelity and response-header exposure remain partial.
+Only HTTP(S)/WS(S), permitted public ports and credential-free destination URLs are accepted by default. Private/loopback/link-local/reserved/documentation addresses are blocked, including mapped IPv6 and transition cases. DNS resolution rejects mixed public/private or empty results. Reqwest connects using validated resolver addresses; WS resolves once and connects to validated sockets with the original TLS hostname. Each mapped redirect validates again. Automatic upstream redirects and ambient system proxies are disabled. `RAX_FIXTURE_HOSTS` is a test-only administrator exception.
 
-## Limits
+Browser Cookie and gateway Authorization never pass through to upstream. Cookies come from the per-session jar for the original destination. Explicit website Authorization travels separately, may intentionally target a CORS-authorized origin, and is removed on cross-origin redirect. Native transport Priority is removed; explicit website Priority is preserved separately. CORS checks use credential-aware origin, method and header policies; Authorization requires an explicit allowed header under the [Fetch preflight rules](https://fetch.spec.whatwg.org/#cors-preflight-fetch). Browser response wrappers filter exposed headers and report rejected CORS as network failures.
+
+Cookie validation covers public suffixes, prefixes, path/domain/expiry/Secure/HttpOnly, script overwrite protection, schemeful SameSite, bounded replacement/deletion/eviction and maintenance. Lax top-level exceptions are conservative because iframe-based virtual browsing cannot recreate every original ancestor-site context. HttpOnly cookies are unavailable to scripts.
+
+## Resource limits
 
 | Resource | Bound |
 | --- | --- |
-| Concurrent HTTP/relay operations | 32 total |
-| Concurrent buffered transformations | 8 |
-| Request body | 8 MiB (bounded buffering; uploads are not end-to-end streamed) |
-| Request body deadline | 30 seconds |
-| Transformable response | 4 MiB of decoded text |
-| Binary/streaming response | 128 MiB |
-| Connect timeout | 10 seconds |
-| Upstream read inactivity timeout | 30 seconds |
-| Transformer timeout | 30 seconds |
-| Sessions | 256; idle sessions can be evicted after 30 minutes when capacity is reached |
-| Cookies/session | 128; script/raw cookie input ≤4 KiB |
-| Requests/session | 600 per minute |
-| WebSockets/session | 8 |
-| WebSocket message/frame | 4 MiB / 1 MiB |
-| WebSocket lifetime | 1 hour |
-| Transform cache | 32 million result string characters, FIFO eviction; not upstream-response caching |
+| Active HTTP/socket operations | 32 |
+| Buffered transforms | 8 |
+| Parser processes / queued tasks | 4 / 8 |
+| Parser deadline, including queue | 10 seconds; process killed on timeout/cancellation |
+| Parser JS old-space | 192 MiB per process; native RSS requires OS/container limits |
+| Browser/backend upload | 64 MiB; backend streams, browser HTTP/1 wrapper buffers |
+| Upload/transformed-body deadline | 30 seconds |
+| Transformable response | 4 MiB decoded bytes |
+| Binary/SSE stream | 128 MiB; 10-minute binary / 1-hour SSE total lifetime |
+| Connection / read inactivity | 10 / 30 seconds |
+| Sessions | 256, 30-minute idle TTL; active sockets retain a session |
+| Cookie jar / individual input | 128 cookies / 4 KiB |
+| Requests per session | 600 per minute |
+| Registered virtual origins per session | 1024 |
+| WebSocket session quota / frame / message / lifetime | 8 / 1 MiB / 4 MiB / 1 hour |
+| Transformation cache | 32 MiB counted result bytes, FIFO |
+| Persistent state | 4 MiB plaintext; authenticated encryption |
 
-These bounds limit individual allocations and concurrency; they are not a measured whole-process memory ceiling. The transformer parses synchronously, so complex parser workloads can still stall its event loop. Sessions expire in memory and are not persisted. Cookie capacity skips further Set-Cookie entries; diagnostics for that condition need expansion. Session identifiers and native browser storage survive different intervals, so server restart logs users out while client storage remains.
+These are allocation/admission limits, not a whole-process memory guarantee. Benchmarks record sampled Rust/Node memory and parser task-end snapshots. Deployment uses OS/container limits. Authenticated, cookie-bearing, non-GET and Set-Cookie transform results are excluded from caching; upstream browsing responses and application workers use no-store.
 
-## Header policy
+## Header and browser policy
 
-Unchanged binary responses retain content type, range semantics, validators and download disposition. Hop-by-hop headers are removed, decoded compression headers are handled by Reqwest, and sessions' Set-Cookie never passes through raw. Private upstream resources use no-store to avoid cross-user HTTP-cache leakage. Transformed text removes stale length/encoding/hash validators and advertises UTF-8.
+Binary responses preserve usable MIME/range/download headers. Hop-by-hop fields are removed. Upstream compression is decoded, and downstream gzip/Brotli is negotiated separately. Transformed bytes remove stale length/hash validators, integrity/nonces and encoding and advertise UTF-8.
 
-HTML CSP and X-Frame-Options are replaced because their original origin assumptions cannot govern rewritten source embedded in the shell. The replacement limits ordinary sources to the content origin, data/blob where needed, disallows plugins, restricts embedding to shell/content origins, and permits inline/eval scripts for compatibility. Camera, microphone, location and payments are disabled. Authored meta CSP and script integrity/nonce attributes are removed for transformed bytes. This is a deliberate compatibility policy that weakens original inline-script restrictions; original CSP is not faithfully preserved. CSS/JS CSP and remaining COOP/COEP/CORP headers are retained where not explicitly translated. Referrer policy is same-origin on the actual content origin so the server can derive the virtual referer.
+HTML CSP/X-Frame-Options cannot govern rewritten source using original origins, so they are replaced with a documented proxy policy. It restricts normal sources to mapped content hosts, permits necessary inline/eval code and data/blob resources, disables plugins, restricts frame ancestors, and enforces a sandbox even for direct content documents. The sandbox prevents document.domain relaxation. Origin-Agent-Cluster requests origin-keyed allocation; camera/microphone/geolocation/payment/document-domain permissions are disabled. Original inline CSP restrictions are therefore weakened, not faithfully emulated. Non-HTML COOP/COEP/CORP/CSP are retained where no explicit translation is needed.
 
-Upstream HSTS, Clear-Site-Data and Service-Worker-Allowed do not apply to proxy application state and are dropped. Upstream CORS headers are consumed for virtual checks and replaced with shell access policy at the proxy boundary. No DRM, authentication challenge, WebAuthn relying-party origin or browser security boundary is bypassed.
+HSTS, Clear-Site-Data and original Service-Worker-Allowed cannot control application state and are dropped; a mapped scope limit is supplied for supported classic upstream workers. Referrer policy allows same-origin document identity and native-origin-only cross-site source identification. Virtual CORS is consumed upstream and native gateway CORS authorizes mapped application/content hosts. This cannot defeat original WebAuthn identity, DRM, anti-bot challenges, authentication policy or browser permission rules.
 
-## Hosting
-
-The default bind is loopback. Public binding requires `RAX_TRUSTED_GATEWAY=1`, an explicit operator assertion that authentication, TLS, access logging, global/IP rate limits, request deadlines and network egress restrictions exist outside this process. The flag does not implement authentication. Protect **both** origins at the gateway; leave the authenticated transformer on loopback. Do not host an anonymous public proxy.
-
-The transformer requires a random shared bearer token, binds only 127.0.0.1, caps inputs and caches results in memory. Session cookies are HttpOnly and SameSite=Strict, with Secure on HTTPS. Operational errors/logs expose categories, not upstream credentials, bodies or cookie values. Browser test traces contain fixture data; keep real account traces private.
+The default bind is loopback. Public access requires an authenticated HTTPS gateway and independent egress/IP/global abuse controls. Operational metrics/transformer calls require a random bearer secret. Session keys/checkpoints and real-account traces must remain private; logs never intentionally include cookie values, bodies or Authorization values.

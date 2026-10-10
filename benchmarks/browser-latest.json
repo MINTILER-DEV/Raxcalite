@@ -1,12 +1,12 @@
 {
-  "date": "2026-10-10T03:02:02.493Z",
+  "date": "2026-10-10T04:39:02.591Z",
   "pages": {
     "direct": {
-      "loadMs": 17.78,
+      "loadMs": 14.44,
       "heapBytes": 10000000
     },
     "proxied": {
-      "loadMs": 52.26,
+      "loadMs": 477.48,
       "heapBytes": 10000000
     }
   },

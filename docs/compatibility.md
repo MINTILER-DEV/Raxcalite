@@ -1,36 +1,33 @@
 # Compatibility record
 
-Status describes the controlled Chromium fixtures, not universal website compatibility. Successful rendering alone is insufficient. Run `npm run test:e2e` to reproduce the observed behavior.
+The fixture suite compares direct and proxied behavior in Chromium, Firefox and WebKit. Status applies to covered operations, not complete authenticated website journeys. Reproduce with `npm run test:e2e`, `npm run test:isolation` and `npm run test:https`.
 
-| Surface | Classification | Coverage / practical limit |
+| Surface | Classification | Verified support and limit |
 | --- | --- | --- |
-| HTML navigation and resources | Correct in fixtures | Links, forms, base, script/style/link/image/media URL attributes, srcset, srcdoc, SVG references, refresh and malformed HTML parsing |
-| CSS | Correct in fixtures | Imports, fonts, URL/image-set/custom properties, inline CSS; dynamic DOM/CSSOM parser included |
-| JavaScript | Partially compatible | Modern syntax, lexical location bindings, assignments, static/dynamic module imports, import.meta.url and postMessage call transforms; dynamic source and reflective access remain gaps |
-| Fetch / Request | Correct in fixtures | Bodies, HTTP methods, credentials metadata, Response URL, AbortController, JSON/binary/streaming; uploads buffered, cross-origin no-cors rejected |
-| XMLHttpRequest | Partially compatible | URL/open/send mapping and response types; virtual CORS status/event/header exposure not identical to native cross-origin XHR |
-| Cookies / sessions | Correct in fixtures, partial SameSite | HttpOnly kept server-side; script cookie ordering and user separation verified; SameSite handling conservative; 128 cookie/session cap |
-| localStorage / sessionStorage | Correct in fixtures | Named properties/methods/clear/key/length and namespaces; events translated; hostile native-access isolation impossible |
-| IndexedDB | Correct in fixtures | Native database APIs, namespaced open/delete/list/name; origin quota is shared |
-| Cache Storage | Correct in fixtures | Cache names isolated through wrapper, native cache operations; Request semantics inside individual caches not comprehensively virtualized |
-| BroadcastChannel / MessageChannel | Partially compatible | Broadcast names namespaced; MessageChannel native transfers; extended event/name semantics not separately regression tested |
-| Location / history | Correct for supported references | Original document URL/base/referrer, push/replace/back; native unforgeable location and dynamic computed global properties remain actual origin |
-| Shell history | Partially compatible | Back/forward reload recorded destinations; does not preserve BFCache/POST resubmission/page state as a native browser would |
-| Frames / postMessage | Correct in fixtures, security-limited | Nested URL mapping and virtual sender/target envelope; WindowProxy cross-origin isolation cannot be emulated; optional/computed/reflective message calls may bypass AST |
-| Dedicated classic/module workers | Correct in fixtures | URL-backed scripts, imports, fetch, messages and lifecycle; imported module initialization order fixed |
-| Shared workers | Partially compatible | Constructor and origin-namespaced worker name implemented; browser support varies; additional regression coverage needed |
-| Upstream service workers | Unsupported | Registration rejects with NotSupportedError; native origin/scope enforcement cannot be moved to virtual origins |
-| Application service workers | Correct in fixtures | Separate shell/content registrations, offline app assets, pass-through routing, shell worker reset; backend still required for browsing |
-| WebSocket | Correct in fixtures | Text relay and protocol selection tested; binary/control/close/backpressure implemented but need stress/edge regression tests |
-| EventSource | Correct in fixtures | Mapped streaming events; reconnect/Last-Event-ID and large streams require more coverage |
-| Redirects | Correct in fixtures | Native method transitions across mapped Location; unsafe target rejected; cross-origin redirect chains need broader coverage |
-| Downloads / ranges / media | Partially compatible | Binary bytes and ranges verified; URL-backed media passed through, codec/DRM behavior remains native and unverified |
-| Security checks | Security-restricted | Private destinations and unsafe redirects denied, URL-backed trusted tests explicitly allowlisted, toolbar origin isolation verified |
-| DOM insertion | Correct for covered operations | URL properties/attributes, innerHTML and srcset/CSSOM mapped; dynamically constructed inline scripts, document.write and unusual insertion APIs incomplete |
-| Blob / data URLs | Partially compatible | Native resource/fetch URLs preserved; blob/data workers reject rather than run untransformed source |
-| Origin-bound APIs | Unsupported or native | WebAuthn, DRM, WebRTC, native permissions, secure-context APIs and platform identity cannot acquire the original site's genuine origin |
-| Non-UTF-8 text | Unsupported | Explicit error instead of corrupt transformation; charset decoding is remaining work |
+| HTML/CSS | Correct in fixtures | HTML5 parsing, base, resources/srcset, forms, SVG links, imports, fonts, image-set and custom properties; parser warnings remain visible |
+| JavaScript | Partially compatible | Scope-aware location/import/meta/message rewriting, aliases/destructuring, supported Reflect calls, direct eval, ordinary/async/generator Function constructors, timer strings and inserted scripts; arbitrary reflection/with/aliased eval are not universally covered |
+| Import maps | Correct in fixtures | Bare, URL-shaped and scoped keys/values mapped consistently |
+| Fetch/Request/XHR | Correct in fixtures, partial native internals | Methods, multipart/large bodies, aborts, response URLs, CORS header exposure, XHR native error events/status, redirect modes; browser uploads buffer up to 64 MiB |
+| CORS | Correct for tested policies | Credential-aware origin/method/header checks and wildcards, value safelists, explicit Authorization; Authorization must be explicitly allowed even when an engine accepts a wildcard |
+| Cookies/sessions | Partially compatible | Domain/path/prefix/public-suffix/expiry, Secure, HttpOnly overwrite prevention, schemeful SameSite, eviction, TTL and encrypted restart; original ancestor/top-site context and default-Lax grace behavior are not fully represented |
+| Storage | Correct in fixtures, partial reflection | Names/methods/events/clear, IndexedDB and Cache Request keys; native origin quotas apply, low-level Storage/Headers reflection and opaque Cache internals can differ |
+| Frames/messages | Correct in fixtures | Native per-user/site isolation, virtual message origins/targets, transfer lists and forged-assertion rejection; arbitrary aliased/reflective Window APIs are not completely rewritten |
+| Location/history | Partially compatible | Supported virtual references and native push/replace/back/forward/reload preserve state; native unforgeable Location/WindowProxy identity remains actual |
+| Browser shell | Correct in fixtures | 66 px toolbar, 25 px collapse handle, mobile/auto-hide, icon, tabs, restore, favicon/title, diagnostics and recovery; iframe tabs share host joint history and BFCache policy |
+| Dedicated/module/shared workers | Correct in fixtures | URL-backed entries, initialization order, imports, fetch, messages and lifecycle; native engine availability still applies |
+| Classic upstream service workers | Supported subset | Isolated native site only, mapped scope/scriptURL, controlled fetch, ready/registration and Client URLs; push/notifications/background platform services are not virtualized |
+| Module upstream service workers | Security-restricted | Explicit NotSupportedError: tested native module SW loading omits gateway cookies; unauthenticated user-host lookup is never allowed as a fallback |
+| Application workers | Correct in fixtures | Build-versioned offline app assets, pass-through routing and shell/open-content recovery; upstream browsing is not available offline |
+| WebSockets | Correct in fixtures | Text/binary/protocols, control frames, close codes, backpressure, quota cleanup and HTTPS gateway upgrades; this is not a throughput stress guarantee |
+| EventSource | Correct in fixtures | Events, reconnect and Last-Event-ID; application workers preserve browser-managed reconnect requests |
+| Downloads/media/ranges | Correct in fixtures | Binary bytes, disposition, ranges and WAV metadata; codecs, DRM and platform playback remain native |
+| DOM insertion | Correct for covered operations | Contextual table/SVG fragments, outer/innerHTML, append/replace, shadow resources, event handlers, script data, SVG properties/namespaces, CSSOM and adopted stylesheets; split document.write tokens and every Attr/serialization surface are not identical |
+| Text encodings | Correct in fixtures | BOM/HTTP charset, HTML meta sniffing and CSS charset; UTF-8 output |
+| Blob/data URLs | Partially compatible | Native resource/fetch URLs work; worker source cannot be synchronously recovered and rewritten for arbitrary external Blob/File URLs |
+| Origin-bound APIs | Unsupported/native | Original-origin WebAuthn, DRM, OAuth identity checks, TLS client authentication, browser permissions and crossOriginIsolated cannot be supplied by JavaScript rewriting |
 
-Bare ES module specifiers remain bare so rewritten import maps can resolve them. Reserved helper name `__rax` can collide with authored globals. An import with a computed source maps supported network paths at runtime. Code generated through eval/Function/script.text, destructured/aliased native location, optional/computed Window.postMessage, custom elements and unusual DOM APIs need additional transformations or safe compatibility restrictions.
+## Public-site evidence
 
-The suite currently targets Chromium only. Firefox/WebKit, real-world site cohorts, authenticated journeys, malformed/large inputs and adversarial code require separate validation. No browser feature is declared fully implemented merely because its constructor exists.
+`node benchmarks/cohort.mjs` compares five unauthenticated Chromium pages in fresh contexts. It records document status/title/text size, resource failures, script errors and parser warnings. Example Domain, Wikipedia and Hacker News passed the limited render check. MDN and the Rust homepage were classified partially compatible because parser recovery warnings were observed. The Rust stylesheet failure was fixed with general CSS parser recovery; the recovered syntax remains reported. Every document title matched. See `benchmarks/cohort-latest.json` for the exact snapshot; remote sites and their content can change.
+
+This cohort does not validate sign-in, payments, editors, complete navigation or application-specific behavior. Rendering is only one compatibility dimension. Browser traces and test annotations preserve native differences rather than silently calling every surface equivalent.

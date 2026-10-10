@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-10T04:38:41.056Z",
+  "platform": "win32",
+  "node": "v24.13.1",
+  "build": "Rust debug",
+  "paceMsPerWorker": 1000,
+  "memory": {
+    "rustPeakSampledBytes": 26542080,
+    "nodeParentPeakSampledBytes": 95678464,
+    "parserTaskEndMaxBytes": 297959424,
+    "samples": 85
+  },
+  "measurements": [
+    {
+      "label": "cold-unique",
+      "concurrency": 8,
+      "requests": 160,
+      "statuses": {
+        "200": 160
+      },
+      "elapsedMs": 21340.42,
+      "medianMs": 11.92,
+      "p95Ms": 910.14
+    },
+    {
+      "label": "cached",
+      "concurrency": 16,
+      "requests": 160,
+      "statuses": {
+        "200": 160
+      },
+      "elapsedMs": 10303.49,
+      "medianMs": 19.45,
+      "p95Ms": 59.29
+    }
+  ],
+  "transformer": {
+    "requests": 320,
+    "hits": 160,
+    "failures": 0,
+    "cacheBytes": 78180,
+    "cacheEntries": 160,
+    "active": 0,
+    "queued": 0,
+    "rss": 89309184,
+    "parserRss": 235307008
+  },
+  "backend": {
+    "active": 0,
+    "errors": 0,
+    "requests": 323,
+    "transforms": 0
+  }
+}

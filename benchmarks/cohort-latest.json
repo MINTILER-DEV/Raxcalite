@@ -1,0 +1,165 @@
+{
+  "date": "2026-10-10T04:57:14.738Z",
+  "node": "v24.13.1",
+  "platform": "win32",
+  "scope": "Unauthenticated Chromium page rendering only; this does not validate complete website journeys.",
+  "sites": [
+    {
+      "url": "https://example.com/",
+      "direct": {
+        "status": 200,
+        "title": "Example Domain",
+        "bodyChars": 917,
+        "loadMs": 2136.23,
+        "requests": 2,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "proxied": {
+        "status": 200,
+        "title": "Example Domain",
+        "bodyChars": 917,
+        "loadMs": 2824.51,
+        "requests": 4,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "classification": "correct",
+      "reason": "Title and successful document status match within this limited render smoke check."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Web_browser",
+      "direct": {
+        "status": 200,
+        "title": "Web browser - Wikipedia",
+        "bodyChars": 20359,
+        "loadMs": 2305.33,
+        "requests": 40,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "proxied": {
+        "status": 200,
+        "title": "Web browser - Wikipedia",
+        "bodyChars": 20359,
+        "loadMs": 3860.41,
+        "requests": 56,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "classification": "correct",
+      "reason": "Title and successful document status match within this limited render smoke check."
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
+      "direct": {
+        "status": 200,
+        "title": "Fetch API - Web APIs | MDN",
+        "bodyChars": 3704,
+        "loadMs": 2280.05,
+        "requests": 100,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "proxied": {
+        "status": 200,
+        "title": "Fetch API - Web APIs | MDN",
+        "bodyChars": 3704,
+        "loadMs": 3111.77,
+        "requests": 104,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [
+          {
+            "url": "http://ed9f24fd12be414abecf1554-fe9ef93f8af7b680d1a77a0f54590285.rax.localhost:3071/p/aHR0cHM6Ly9kZXZlbG9wZXIubW96aWxsYS5vcmc/en-US/docs/Web/API/Fetch_API",
+            "count": 1
+          }
+        ],
+        "warnings": [
+          "CSS parser recovered invalid syntax at line 1 column 2"
+        ]
+      },
+      "classification": "partially compatible",
+      "reason": "Rendering, title, script or resource differences are recorded; inspect them before claiming journey compatibility."
+    },
+    {
+      "url": "https://news.ycombinator.com/",
+      "direct": {
+        "status": 200,
+        "title": "Hacker News",
+        "bodyChars": 4173,
+        "loadMs": 2284.42,
+        "requests": 6,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "proxied": {
+        "status": 200,
+        "title": "Hacker News",
+        "bodyChars": 4173,
+        "loadMs": 2883.05,
+        "requests": 8,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "classification": "correct",
+      "reason": "Title and successful document status match within this limited render smoke check."
+    },
+    {
+      "url": "https://www.rust-lang.org/",
+      "direct": {
+        "status": 200,
+        "title": "Rust Programming Language",
+        "bodyChars": 3485,
+        "loadMs": 2185.12,
+        "requests": 23,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [],
+        "warnings": []
+      },
+      "proxied": {
+        "status": 200,
+        "title": "Rust Programming Language",
+        "bodyChars": 3485,
+        "loadMs": 2665.53,
+        "requests": 25,
+        "errors": [],
+        "failed": [],
+        "httpErrors": [],
+        "resourceWarnings": [
+          {
+            "url": "http://3fa0bd37c5f54db7b94ef2dd-abf27b07f8fb29f574b3665ebb353e29.rax.localhost:3071/p/aHR0cHM6Ly9ydXN0LWxhbmcub3Jn/static/styles/vendor_10880690442070639967.css",
+            "count": 1
+          }
+        ],
+        "warnings": []
+      },
+      "classification": "partially compatible",
+      "reason": "Rendering, title, script or resource differences are recorded; inspect them before claiming journey compatibility."
+    }
+  ]
+}

@@ -1,28 +1,28 @@
 {
   "node": "v24.13.1",
   "platform": "win32",
-  "date": "2026-10-10T02:57:09.829Z",
+  "date": "2026-10-10T04:39:13.959Z",
   "measurements": {
     "html": {
       "bytes": 21024,
       "iterations": 40,
-      "medianMs": 26.34,
-      "p95Ms": 35.55,
-      "rssDeltaMiB": 38.4
+      "medianMs": 20.34,
+      "p95Ms": 28.26,
+      "rssDeltaMiB": 39.29
     },
     "css": {
       "bytes": 12280,
       "iterations": 40,
-      "medianMs": 4.89,
-      "p95Ms": 7.65,
-      "rssDeltaMiB": 20.69
+      "medianMs": 4.11,
+      "p95Ms": 4.93,
+      "rssDeltaMiB": 20.54
     },
     "js": {
       "bytes": 19169,
       "iterations": 40,
-      "medianMs": 22.61,
-      "p95Ms": 54.54,
-      "rssDeltaMiB": 106.91
+      "medianMs": 18.02,
+      "p95Ms": 34.42,
+      "rssDeltaMiB": 139.13
     }
   }
 }

@@ -1,41 +1,44 @@
 # Deployment
 
-## Local development
+## Local and process-managed use
 
-Run from the repository root with `npm ci` then `npm run dev`. Filesystem roots for static assets are relative to the process working directory. The Node launcher builds frontend bundles and starts both services using one generated transformer token. Stop it with Ctrl+C. Node 24 and Rust 1.93+ are the tested versions.
+Run `npm ci` and `npm run dev` from the repository root. Node 24 and Rust 1.93+ are the tested baseline. The launcher builds assets/Rust, starts the transformer and launches the binary directly so signals reach the server. `node tools/start.mjs --release` selects release mode. Ctrl+C stops local services. `.env` configures ports/origins and optional state; configured origins remain distinct. `--shared` explicitly disables native site routing and is intended for trusted compatibility testing.
 
-`.env` is loaded by the development launcher. Ports 3030 (shell), 3031 (content), and 3032 (loopback transformer) are defaults. Changing only ports still works: the shell defaults to its own port plus one for the content port. If ports are nonconsecutive, set `RAX_PROXY_ORIGIN` and rebuild. Set `RAX_APP_ORIGIN` to the exact shell origin recognized by the backend. Keep the two native origins distinct.
+For a process manager, run `npm run build` and `cargo build --release --locked`. Set the same random `RAX_TRANSFORM_TOKEN` for `node tools/transformer.mjs` and the Rust binary, keep the transformer on loopback, and run from the project root. `tools/serve.mjs` starts prebuilt services; `RAX_BINARY` overrides its binary path. Restart both on failure and apply container/process CPU and memory limits.
 
-## Process separation
+## Native domain and HTTPS gateway
 
-Build with `npm run build` and `cargo build --release --locked`. When using a process manager, set the same high-entropy `RAX_TRANSFORM_TOKEN` on `node tools/transformer.mjs` and the Rust binary. Start the transformer first, and run the binary from the repository root. The binary needs `frontend/dist` and the transform service to serve pages. A process manager should restart either component on failure and cap memory/CPU.
+Use a dedicated domain with no unrelated applications or tenants:
 
-`tools/serve.mjs` is the prebuilt launcher: set `RAX_BINARY` to the platform-specific binary path when it is not `./raxcalite`. It runs no build step. The Docker image uses this launcher.
+```text
+RAX_ISOLATION_DOMAIN=content.your-domain.example
+RAX_PROXY_ORIGIN=https://content.your-domain.example
+RAX_APP_ORIGIN=https://app.content.your-domain.example
+```
+
+Route the exact app host to the shell listener (3030); route the base and wildcard content hosts to the content listener (3031). Supply DNS/TLS for the base and wildcard, preserve Host, authenticate access to both routes, and support content WebSocket upgrades. Disable SSE proxy buffering and preserve streaming/cancellation. Runtime origins come from `/config.js`; assets need no origin-specific rebuild. Public isolated deployments require HTTPS; local `.localhost` development can use HTTP.
+
+The HttpOnly Strict session cookie spans the dedicated content domain and is Secure under HTTPS. Gateway authentication belongs at the perimeter. `RAX_TRUSTED_GATEWAY=1` acknowledges external authentication, TLS, IP/global quotas and egress controls before public binding; it does not implement those controls. Never configure `RAX_FIXTURE_HOSTS` in production. Preserve separation between gateway Authorization and explicit website Authorization.
+
+`npm run test:https` uses a local test TLS gateway and ignored short-lived certificate to verify Secure cookies, Host routing, CORS, workers, SSE and socket upgrades in all three engines. Production requires a valid certificate and its own authenticated gateway configuration.
 
 ## Docker
 
 ```sh
 docker build -t raxcalite .
-docker run --rm -p 127.0.0.1:3030:3030 -p 127.0.0.1:3031:3031 raxcalite
+docker run --rm --memory=1536m --cpus=2   -p 127.0.0.1:3030:3030 -p 127.0.0.1:3031:3031   -e RAX_APP_ORIGIN=http://app.rax.localhost:3030   -e RAX_PROXY_ORIGIN=http://rax.localhost:3031   -e RAX_ISOLATION_DOMAIN=rax.localhost raxcalite
 ```
 
-Only bind the published ports to loopback for private local use. The image binds inside the container and runs as a non-root user. Port 3032 is not published. Docker was unavailable in the implementation environment; the Dockerfile has not been build-verified. The native commands and browser suite have been verified.
+The multi-stage release image runs as non-root with Node's parent old-space capped at 512 MiB. The transformer is internal and port 3032 is unpublished. CI builds the image and runs isolated Chromium checks against a container limited to 1536 MiB/two CPUs. Local Docker is not required for the native workflow. For deployment substitute the HTTPS domain settings above; port publication alone is not gateway authentication.
 
-For a gateway-hosted image:
+## Persistent state and operations
 
-```sh
-docker build --build-arg RAX_PROXY_ORIGIN=https://content.example.test -t raxcalite .
-docker run --rm -p 127.0.0.1:3030:3030 -p 127.0.0.1:3031:3031 \
-  -e RAX_APP_ORIGIN=https://browser.example.test \
-  -e RAX_PROXY_ORIGIN=https://content.example.test raxcalite
-```
+Set `RAX_SESSION_FILE` to a private writable file and `RAX_SESSION_KEY` to 32 random bytes encoded as base64. Keep the key outside the repository/image and preserve it across restarts. Checkpoints use authenticated AES-256-GCM with a fresh nonce, an atomic replacement and a bounded file. Unix file permissions are 0600; use a private Windows ACL. Wrong-key/corrupt state fails startup. Only persistent cookies survive serialization; session cookies do not. Client storage remains in the user's browser. Multi-instance deployments require session affinity; no shared distributed state backend is provided.
 
-Use HTTPS and sibling subdomains of the same site so Strict session cookies work in embedded content. Configure gateway authentication on **both** hostnames and preserve Host. Route the shell hostname to 3030, content hostname to 3031, and allow WebSocket upgrades on the latter. Preserve request/response streaming; disable reverse-proxy buffering for SSE. Bound HTTP request/read deadlines, apply IP/global limits and restrict egress to public web destinations at the firewall as an independent layer. Credentials for upstream websites belong only in the virtual jar, not in gateway URLs or process logs.
+`GET /health` reports Rust liveness. `GET /ready` verifies transformer readiness. `GET /metrics` and the transformer's `/metrics` require `Authorization: Bearer <RAX_TRANSFORM_TOKEN>`. Metrics expose counts, queue/cache activity and RSS snapshots without cookies/bodies. On Unix SIGTERM and on supported platforms Ctrl+C initiate draining: streams stop, sockets close, server wait is bounded to ten seconds, then the final encrypted checkpoint is attempted. CI verifies Unix shutdown; Windows process termination is not equivalent to graceful signals.
 
-`RAX_TRUSTED_GATEWAY=1` acknowledges these external controls before a non-loopback Rust bind. It is not an authentication implementation. Do not expose the content backend directly or run with fixture exceptions. Sessions and upstream cookies are in memory and are lost on restart. Persistent shared-session deployments require a separately designed encrypted state store and multi-instance session affinity.
+## Updates, recovery and diagnostics
 
-## Updates and recovery
+Build-derived cache versions and an asset manifest update shell/content application assets together. Settings -> Reset application worker unregisters the shell application worker and sends authenticated recovery commands to opened content tabs. It clears application caches, not upstream site service workers or all unopened browser origins. Use site/browser storage controls for a full site reset.
 
-Rebuild assets and restart both processes together. Application worker caches use an explicit version (`rax-shell-v1`); increment it when changing caching behavior. Normal asset requests use network-first refresh. Settings → Reset application worker unregisters the shell worker and clears its caches; reload reinstalls it. Content worker registration can be recovered using that content origin's browser DevTools → Application → Service Workers. A future version should expose coordinated recovery for both origins.
-
-Browser diagnostics are bounded to 100 entries/tab and do not log bodies or cookies. `RAX_DEBUG=1` enables runtime console diagnostics; `RAX_SOURCE_MAPS=1` emits inline transformed JavaScript maps. `RUST_LOG=warn` enables category-only backend warnings. Transform parse failures appear as explicit error pages or inline diagnostics.
+`RAX_DEBUG=1` reports which runtime subsystems route operations plus bounded diagnostics; `RAX_SOURCE_MAPS=1` emits original-source identities for transformed JavaScript. Backend logs contain error categories/counts. Protect traces from real-account sessions; the committed fixtures use synthetic data.

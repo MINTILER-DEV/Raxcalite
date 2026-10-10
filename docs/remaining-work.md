@@ -1,27 +1,23 @@
-# Exact remaining work
+# Delivery status and practical limits
 
-The repository is runnable and the tested browser/runtime paths work. It is not the fully hardened, universal browser compatibility platform described in the initial prompt. Continue from the current implementation; do not replace it with website-specific patches.
+The previous implementation backlog has been addressed: native per-user/site origins, AST/generated-source support, CORS response/XHR semantics, cookie eviction/SameSite/persistence/TTL, charset decoding, bounded uploads, dynamic DOM/Cache operations, native history/tab restore, three-engine tests, classic site workers, parser-process cancellation, compression, operational limits/readiness/metrics/shutdown, Docker/HTTPS verification and reproducible load/public-site measurements are implemented. Evidence lives in the test suites, CI workflow and benchmark JSON, not a universal compatibility claim.
 
-## Highest priority
+## Native limitations
 
-1. Migrate content origin routing to dedicated native origins per virtual site/user for hostile-site isolation. Extend the canonical contract, cookie broker, CORS, frames, worker/service-worker scopes and deployment together. Current client-origin assertions are not a secure identity boundary.
-2. Extend AST handling for destructured/aliased native location, optional/computed message calls, reflective operations and generated eval/Function/inline scripts. Define collision-safe helper bindings instead of a fixed `__rax` global. Add semantics tests before enabling each transform.
-3. Complete response CORS fidelity: filtered exposed headers, opaque no-cors responses, redirect-mode edge behavior and native-equivalent XHR error/events/status. Use the existing server preflight enforcement and add direct-vs-proxied cases.
-4. Improve cookies: registrable-domain SameSite context/top-navigation behavior, bounded eviction with diagnostics, persistence and TTL cleanup. Expand the existing adversarial HttpOnly/path/domain/public-suffix checks into broader direct-browser comparisons.
-5. Implement non-UTF-8 decoding from charset/sniffing and encode transformed text consistently. Add multipart uploads, large uploads, timeouts and streaming cancellation fixtures. Requests are currently buffered; responses stream only when no transform is needed.
+An ordinary web application cannot grant a proxied page the original site's native security identity, redefine unforgeable Window/Location/ServiceWorker internals, bypass WebAuthn/DRM/authentication policy, make iframe tabs independent browser history stacks, or guarantee another engine's BFCache behavior. Those requirements remain unsupported/native. Permissions and origin-bound platform services are intentionally restricted. No fake replacements are supplied.
 
-## Compatibility and coverage
+The tested native module-service-worker script fetch omits gateway session credentials. Raxcalite cannot change that native fetch option through ServiceWorker.register and rejects module registration rather than serve a user's resources without authentication. Classic URL-backed workers use the verified isolated-scope path. Arbitrary Blob/File worker source is also unavailable synchronously at Worker construction; URL-backed workers are the supported path.
 
-- Add browser comparisons for Firefox/WebKit, SharedWorker, BroadcastChannel/storage events, MessageChannel transfers, binary/control WebSocket frames/close codes, SSE reconnect, redirect chains across origins, downloads/media, import maps and CSS edge cases.
-- Expand dynamic DOM interception for document.write, inline script text, SVG property APIs, custom elements, adopted stylesheets and mutation races. Preserve original observable attribute strings rather than returning resolved virtual URLs everywhere.
-- Finish Cache Storage Request URL semantics and clearing/recovery of both shell and content application workers. Keep upstream service-worker registration explicitly unsupported unless a safe architecture makes a real supported subset possible.
-- Run a reproducible real-world site cohort and classify every failure. Example Domain plus controlled fixtures do not establish broad authenticated-site compatibility.
-- Preserve browser history/BFCache/page state and correct POST resubmission in shell back/forward. Restore tabs and improve favicon/title behavior without expanding default chrome.
+## Exact partial behavior
 
-## Reliability and operations
+These are compatibility limits of the current architecture, not claims of literal impossibility for every future architecture:
 
-- Move parser work to bounded worker threads/processes with hard CPU/deadline cancellation. Profile peak Rust/Node memory and sustained concurrency; add cache hit statistics and request/operation diagnostics without credentials.
-- Verify Docker builds and HTTPS reverse-proxy deployment. Add integration tests for DNS mixed-address/rebinding cases, private redirect resolution, gateway Host handling, rate/session capacities, response byte caps and WebSocket quotas.
-- Add persistent encrypted sessions, coordinated shutdown, metrics and operational readiness checks for transformer failure. The current health endpoint indicates Rust responsiveness, not complete dependency readiness.
+- Arbitrary reflective/aliased native Window access, with, indirect/aliased eval and all optional-call side effects are not universally transformed. The supported AST/generated-source paths are tested; runtime identity/reflection can still reveal the native proxy.
+- Full original ancestor/top-site SameSite context, browser cookie ordering/eviction policy and default-Lax grace rules are not identical. Cookie sending is conservative in unsupported contexts.
+- Attr.value/attribute collections, CSS selectors, serialization, unusual namespace removals and writes split inside HTML tokens can expose mapped strings or differ from native parsing. Complete-fragment document.write and covered dynamic insertion work.
+- Opaque response properties are simulated on a branded empty Response; native Cache/respondWith internals do not become genuinely opaque. Storage/Headers prototype reflection and shared-mode clear events are partial.
+- Recovery covers the shell and opened site origins. Browser same-origin rules prevent directly clearing all unopened site workers/storage from the shell. Persistent sessions are single-instance/affinity-based.
+- Browser uploads buffer within the 64 MiB cap for HTTP/1 interoperability; only backend forwarding is streamed. Text transformations buffer within 4 MiB. OS/container limits are still required for native parser memory.
+- Five public render checks and deterministic fixtures do not establish complete authenticated journeys, sustained production capacity, distributed deployment behavior or an independent adversarial audit. MDN/Rust parser recovery warnings are recorded as partial; no website-specific patches were added.
 
-No phase is considered universally complete: phases 1–4 have working fixture-tested implementations and known compatibility gaps; performance and hardening have implemented limits, checks and benchmarks with the above work still required.
+Potential future extensions should have a concrete compatibility contract and direct-browser regression evidence before changing these classifications. See [compatibility](compatibility.md), [performance](performance.md), [security](security.md) and [deployment](deployment.md).
