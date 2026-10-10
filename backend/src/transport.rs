@@ -256,7 +256,19 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             .and_then(|v| Url::parse(v).ok())
             .or(source_marker);
         if isolation.is_some() {
-            let source = crate::isolation::source(&parts.headers, &state.config, &current);
+            let mut source = crate::isolation::source(&parts.headers, &state.config, &current);
+            // A native same-origin GET with no-referrer may omit both Origin and
+            // Referer. A custom header cannot reach a different browser origin
+            // without CORS adding Origin. Query assertions alone lack that proof.
+            if source.is_none()
+                && !parts.headers.contains_key(header::ORIGIN)
+                && parts.headers.contains_key("x-rax-origin")
+                && claimed
+                    .as_ref()
+                    .is_some_and(|value| value.origin() == target.origin())
+            {
+                source = claimed.clone();
+            }
             if claimed
                 .as_ref()
                 .is_some_and(|u| source.as_ref().is_none_or(|s| u.origin() != s.origin()))
@@ -272,7 +284,11 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                     "Unknown native request origin".into(),
                 ));
             }
-            referer = source.clone();
+            referer = if parts.headers.contains_key(header::REFERER) {
+                source.clone()
+            } else {
+                None
+            };
             virtual_origin = source;
             if current.origins.len() >= 1024
                 && !current

@@ -43,7 +43,7 @@ export function rewriteLargeJS(source,url,options={}) {
   walk(ast,null,(node,parent)=>{
     if(node.type==='Identifier'){
       let text=replacements.get(node);
-      if(!text && node.name==='location' && free(node))text=`${rt}.location`;
+      if(!text && ['location','parent','top'].includes(node.name) && free(node))text=`${rt}.${node.name}`;
       if(text){
         if(parent?.type==='Property' && parent.shorthand && (node===parent.value || node===parent.key)) {
           // Acorn represents a shorthand key/value with distinct nodes at the
@@ -56,11 +56,13 @@ export function rewriteLargeJS(source,url,options={}) {
       const key=prop(node),object=node.object;
       if(key==='location' && ['window','self','globalThis','document'].includes(object.name) && free(object)) {
         overwrite(node.start,node.end,`${rt}.location`);
-      } else if(key==='location' && object.name!==rt) {
+      } else if(['parent','top'].includes(key) && ['window','self','globalThis'].includes(object.name) && free(object)) {
+        overwrite(node.start,node.end,`${rt}.${key}`);
+      } else if(['location','parent','top'].includes(key) && object.name!==rt) {
         wrap(object,`${rt}.locationObject(`,')');
       } else if(key==='url' && object.type==='MetaProperty' && object.meta.name==='import')overwrite(node.start,node.end,JSON.stringify(url));
     }
-    if(node.type==='VariableDeclarator' && node.id.type==='ObjectPattern' && node.init && node.id.properties.some(p=>(p.key?.name||p.key?.value)==='location'))wrap(node.init,`${rt}.locationObject(`,')');
+    if(node.type==='VariableDeclarator' && node.id.type==='ObjectPattern' && node.init && node.id.properties.some(p=>['location','parent','top'].includes(p.key?.name||p.key?.value)))wrap(node.init,`${rt}.locationObject(`,')');
     if(['ImportDeclaration','ExportNamedDeclaration','ExportAllDeclaration'].includes(node.type) && node.source)overwrite(node.source.start,node.source.end,JSON.stringify(map(node.source.value)));
     if(node.type==='ImportExpression')wrap(node.source,`${rt}.mapImport(`,`,${JSON.stringify(url)})`);
     if(node.type!=='CallExpression')return;
@@ -81,7 +83,7 @@ export function rewriteLargeJS(source,url,options={}) {
         overwrite(object.end,first,`)${node.arguments.length?',':''}`);
       }
     }
-    if(callee.type==='MemberExpression' && callee.object.name==='Reflect' && free(callee.object) && ['get','set'].includes(prop(callee)) && node.arguments[1]?.value==='location')wrap(node.arguments[0],`${rt}.locationObject(`,')');
+    if(callee.type==='MemberExpression' && callee.object.name==='Reflect' && free(callee.object) && ['get','set'].includes(prop(callee)) && ['location','parent','top'].includes(node.arguments[1]?.value))wrap(node.arguments[0],`${rt}.locationObject(`,')');
   });
   if(temps.length){const directives=ast.body.filter(n=>n.type==='ExpressionStatement' && n.directive);const start=directives.at(-1)?.end??(source.startsWith('#!')?source.indexOf('\n')+1:0);edits.appendRight(start,`;var ${temps.join(',')};`);}
   return {code:changed?edits.toString():source,map:options.sourceMaps?JSON.parse(edits.generateMap({source:url,includeContent:true,hires:true}).toString()):null};

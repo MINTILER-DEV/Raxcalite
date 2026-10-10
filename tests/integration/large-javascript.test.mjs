@@ -26,3 +26,10 @@ test('a multi-megabyte bundle uses source edits and retains lexical behavior',()
  const code=rewriteJS(source,'https://example.com/a.js').code;
  const context=vm.createContext({__RAX_RUNTIME_v1__:{location:{href:'virtual'}}});vm.runInContext(code,context);assert.equal(context.result,'virtual');assert.equal(context.f('local'),'local');assert.equal(code.split('\n').length,source.split('\n').length);
 });
+
+for(const rewrite of [rewriteJS,rewriteLargeJS])test(`${rewrite.name}: virtual root frames retain aliases and lexical shadowing`,()=>{
+ const root={parent:{},top:{}},runtime={parent:root,top:root,locationObject:o=>o!==root?o:new Proxy(o,{get:(t,k)=>['parent','top'].includes(k)?root:t[k]})};
+ const context=vm.createContext({window:root,__RAX_RUNTIME_v1__:runtime});
+ const code=rewrite(`var result=[parent===window,top===window,window.parent===window];const alias=window;const {top:root}=alias;result.push(alias?.top===window,Reflect.get(alias,'parent')===window,root===window,parent.parent===window);function shadow(parent,top){return [parent,top]};result.push(...shadow('local-parent','local-top'),({parent:'plain'}).parent);`,'https://example.com/').code;
+ vm.runInContext(code,context);assert.deepEqual(Array.from(context.result),[true,true,true,true,true,true,true,'local-parent','local-top','plain']);
+});

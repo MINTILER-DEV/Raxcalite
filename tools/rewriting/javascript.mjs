@@ -28,7 +28,7 @@ export function rewriteJS(source, url, options = {}) {
       if (prop === 'postMessage' && !t.isIdentifier(callee.object,{name:'__RAX_RUNTIME_v1__'})) {
         path.replaceWith(t.callExpression(runtime('postMessage'), [callee.object, ...path.node.arguments])); changed = true;
       }
-      if (t.isMemberExpression(callee) && t.isIdentifier(callee.object, { name: 'Reflect' }) && !bound(path, 'Reflect') && ['get', 'set'].includes(callee.property.name) && t.isStringLiteral(path.node.arguments[1], { value: 'location' })) {
+      if (t.isMemberExpression(callee) && t.isIdentifier(callee.object, { name: 'Reflect' }) && !bound(path, 'Reflect') && ['get', 'set'].includes(callee.property.name) && t.isStringLiteral(path.node.arguments[1]) && ['location','parent','top'].includes(path.node.arguments[1].value)) {
         path.node.arguments[0] = t.callExpression(runtime('locationObject'), [path.node.arguments[0]]); changed = true;
       }
     },
@@ -45,9 +45,10 @@ export function rewriteJS(source, url, options = {}) {
       path.replaceWith(t.sequenceExpression([assign, t.conditionalExpression(guard, t.unaryExpression('void', t.numericLiteral(0)), t.callExpression(runtime('postMessage'), [t.cloneNode(receiver), ...path.node.arguments]))])); changed = true;
     },
     Identifier(path) {
-      if (path.node.name !== 'location' || bound(path, 'location')) return;
+      const name=path.node.name;
+      if (!['location','parent','top'].includes(name) || bound(path, name)) return;
       if (path.isReferencedIdentifier() || (path.parentPath.isAssignmentExpression() && path.key === 'left')) {
-        path.replaceWith(runtime('location')); changed = true; path.skip();
+        path.replaceWith(runtime(name)); changed = true; path.skip();
       }
     },
     MemberExpression(path) {
@@ -55,7 +56,9 @@ export function rewriteJS(source, url, options = {}) {
       const prop = n.computed && t.isStringLiteral(n.property) ? n.property.value : !n.computed && t.isIdentifier(n.property) ? n.property.name : '';
       if (prop === 'location' && t.isIdentifier(n.object) && ['window', 'self', 'globalThis', 'document'].includes(n.object.name) && !bound(path, n.object.name)) {
         path.replaceWith(runtime('location')); changed = true; path.skip();
-      } else if (prop === 'location' && !t.isIdentifier(n.object,{name:'__RAX_RUNTIME_v1__'})) {
+      } else if (['parent','top'].includes(prop) && t.isIdentifier(n.object) && ['window','self','globalThis'].includes(n.object.name) && !bound(path,n.object.name)) {
+        path.replaceWith(runtime(prop));changed=true;path.skip();
+      } else if (['location','parent','top'].includes(prop) && !t.isIdentifier(n.object,{name:'__RAX_RUNTIME_v1__'})) {
         n.object=t.callExpression(runtime('locationObject'),[n.object]); changed=true;
       } else if (prop === 'url' && t.isMetaProperty(n.object) && n.object.meta.name === 'import') {
         path.replaceWith(t.stringLiteral(url)); changed = true;
@@ -63,12 +66,12 @@ export function rewriteJS(source, url, options = {}) {
     },
     OptionalMemberExpression(path) {
       const n=path.node;const prop=n.computed && t.isStringLiteral(n.property)?n.property.value:!n.computed && t.isIdentifier(n.property)?n.property.name:'';
-      if(prop==='location' && !t.isIdentifier(n.object,{name:'__RAX_RUNTIME_v1__'})){n.object=t.callExpression(runtime('locationObject'),[n.object]);changed=true;}
+      if(['location','parent','top'].includes(prop) && !t.isIdentifier(n.object,{name:'__RAX_RUNTIME_v1__'})){n.object=t.callExpression(runtime('locationObject'),[n.object]);changed=true;}
     },
     VariableDeclarator(path) {
       if (!t.isObjectPattern(path.node.id) || !path.node.init) return;
       // A proxy preserves all other destructured keys and evaluates getters once.
-      if (path.node.id.properties.some(p => t.isObjectProperty(p) && (t.isIdentifier(p.key, {name:'location'}) || t.isStringLiteral(p.key, {value:'location'})))) {
+      if (path.node.id.properties.some(p => t.isObjectProperty(p) && ['location','parent','top'].includes(t.isIdentifier(p.key)?p.key.name:t.isStringLiteral(p.key)?p.key.value:''))) {
         path.node.init = t.callExpression(runtime('locationObject'), [path.node.init]); changed = true;
       }
     },

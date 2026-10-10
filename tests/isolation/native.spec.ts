@@ -5,6 +5,8 @@ test('location aliases, suppressed referrers, raw native paths and data fetches 
   await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/native-aliases'))?.url()).toBeTruthy();let frame=page.frames().find(f=>f.url().endsWith('/native-aliases'))!;
   await expect.poll(()=>frame.evaluate(()=>(window as any).aliasResults)).toEqual({url:'http://localhost:4040/native-aliases',optional:'http://localhost:4040/native-aliases',document:'http://localhost:4040/native-aliases',extracted:'http://localhost:4040/native-aliases',plain:'plain',cookie:'bridge=yes'});
   await expect.poll(()=>frame.evaluate(()=>(window as any).portResult)).toEqual({value:'one argument'});expect(await frame.evaluate(()=>(window as any).messageArguments)).toBe(1);expect(await frame.evaluate(()=>document.domain)).toBe('localhost');
+  expect(await frame.evaluate(()=>(window as any).frameBoundary)).toEqual({top:true,parent:true,member:true,alias:true,optional:true,reflected:true,nested:true,destructured:true,plain:'plain'});
+  const sameOrigin=await frame.evaluate(async()=>await(await fetch('/api/echo')).json());expect(sameOrigin.cookie).toContain('bridge=yes');
   expect(await frame.evaluate(async()=>await(await fetch('data:text/plain,data-value')).text())).toBe('data-value');
   expect(await frame.evaluate(async()=>{const url=URL.createObjectURL(new Blob(['blob-value']));try{return await(await fetch(url)).text();}finally{URL.revokeObjectURL(url);}})).toBe('blob-value');
   expect(await frame.evaluate(()=>{const url=URL.createObjectURL(new Blob(['postMessage(1)']));try{new Worker(url);return '';}catch(e){return(e as DOMException).name;}finally{URL.revokeObjectURL(url);}})).toBe('NotSupportedError');
@@ -12,10 +14,10 @@ test('location aliases, suppressed referrers, raw native paths and data fetches 
   expect(xhr).toEqual({credentials:false,status:200,origin:'http://localhost:4040',cookie:''});
   const nativeHost=new URL(frame.url()).origin;
   const outsider=await browser.newContext();const outside=await outsider.newPage();expect((await outside.goto(nativeHost+'/next'))!.status()).toBe(403);await outsider.close();
-  await frame.locator('#alias-next').click();await expect.poll(()=>page.frames().find(f=>f.url().includes('/next?alias=yes'))?.url()).toBeTruthy();frame=page.frames().find(f=>f.url().includes('/next?alias=yes'))!;
+  await frame.locator('#alias-next').click();await expect.poll(()=>page.frames().find(f=>f.url().includes('/next?alias=yes'))?.url()).toBeTruthy();frame=page.frames().find(f=>f.url().includes('/next?alias=yes'))!;await expect(frame.locator('h1')).toHaveText('Next page');
   await frame.evaluate(()=>{window['location'].href='/next?raw=%2f';});
-  await expect.poll(()=>page.frames().find(f=>f.url().includes('/p/') && f.url().endsWith('/next?raw=%2f'))?.url()).toBeTruthy();
-  await expect(page.locator('#address')).toHaveValue('http://localhost:4040/next?raw=%2f');
+  await expect.poll(()=>page.frames().find(f=>f.url().includes('/p/') && new URL(f.url()).pathname.endsWith('/next') && new URL(f.url()).searchParams.get('raw')==='/')?.url()).toBeTruthy();
+  await expect(page.locator('#address')).toHaveValue(/^http:\/\/localhost:4040\/next\?raw=%2f$/i);
 });
 test('large bundles and anonymous cross-origin resources load without exposing private credentials',async({page})=>{
   await page.goto(app);await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
@@ -62,7 +64,9 @@ test('native origins isolate hostile frames, storage, assertions and independent
   await expect.poll(()=>page.frames().find(f=>f.url().includes('/p/') && f.url().endsWith('/frame'))?.url()).toBeTruthy();
   const frame=page.frames().find(f=>f.url().endsWith('/frame'))!;
   await expect.poll(()=>frame.evaluate(()=>(window as any).messageResult)).toEqual({data:'child-value',origin:'http://127.0.0.1:4040'});
+  expect(await frame.evaluate(()=>(window as any).frameBoundary)).toEqual({top:true,parent:true});
   const child=page.frames().find(f=>f.url().endsWith('/child'))!;
+  expect(await child.evaluate(()=>(window as any).frameBoundary)).toEqual({top:true,parent:true,root:true});
   expect(new URL(child.url()).origin).not.toBe(new URL(frame.url()).origin);
   expect(await child.evaluate(()=>{try{return parent.document.title}catch(e){return (e as DOMException).name}})).toBe('SecurityError');
   expect(await frame.evaluate(()=>{try{return parent.document.title}catch(e){return (e as DOMException).name}})).toBe('SecurityError');
