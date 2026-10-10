@@ -588,7 +588,11 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         .get("sec-fetch-dest")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let kind = if mime == "text/html" {
+    // Fetch/XHR HTML is data, including XML/JSON served with an HTML MIME type.
+    // Injecting a document runtime here corrupts parsing and response bytes.
+    // Browser navigation still requests document/iframe destinations; clients
+    // without Fetch Metadata retain the existing document-rewriting behavior.
+    let kind = if mime == "text/html" && destination != "empty" {
         Some("html")
     } else if mime == "text/css" {
         Some("css")

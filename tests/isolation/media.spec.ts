@@ -1,5 +1,25 @@
 import {test,expect} from '@playwright/test';
 
+test('caption and HTML data responses preserve their bytes instead of receiving document injection',async({page,browser})=>{
+  test.setTimeout(60000);
+  const read=async()=>{
+    const response=await fetch('/api/captions?lang=en&fmt=srv3');const text=await response.text();
+    const xml=new DOMParser().parseFromString(text,'application/xml');
+    const xhr=await new Promise<string>((resolve,reject)=>{const x=new XMLHttpRequest();x.open('GET','/api/captions?lang=en&fmt=srv3');x.onload=()=>resolve(x.responseText);x.onerror=()=>reject(Error('Caption XHR failed'));x.send();});
+    return {text,xhr,mime:response.headers.get('content-type'),parsed:xml.querySelector('text')?.textContent,
+      errors:xml.getElementsByTagName('parsererror').length,html:await(await fetch('/api/html-data')).text()};
+  };
+  const direct=await browser.newContext();const reference=await direct.newPage();await reference.goto('http://localhost:4040/next');
+  const expected=await reference.evaluate(read);await direct.close();
+  await page.goto('http://app.rax.localhost:3040');
+  await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
+  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url(),{timeout:15000}).toBeTruthy();
+  const frame=page.frames().find(f=>f.url().endsWith('/next'))!;
+  await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
+  expect(expected).toMatchObject({parsed:'Caption & text',errors:0,html:'<section><a href="/next">Fragment</a></section>'});
+  expect(await frame.evaluate(read)).toEqual(expected);
+});
+
 test('media session artwork uses mapped resources and preserves native metadata behavior',async({page})=>{
   await page.addInitScript(()=>{
     if(typeof MediaMetadata!=='undefined') (window as any).__nativeArtwork={
