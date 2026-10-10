@@ -1,19 +1,20 @@
 import {test,expect} from '@playwright/test';
 
 async function installMSE({mime,url}:{mime:string,url:string}){
-  document.querySelector<HTMLVideoElement>('#native-media')?.pause();
-  const v=document.createElement('video');v.id='mse-media';v.muted=true;document.body.append(v);
-  const source=new MediaSource();v.src=URL.createObjectURL(source);
-  await new Promise<void>(resolve=>source.addEventListener('sourceopen',()=>resolve(),{once:true}));
-  let buffer:SourceBuffer;
-  try{buffer=source.addSourceBuffer(mime);}catch(error){
-    if((error as DOMException).name==='NotSupportedError'){URL.revokeObjectURL(v.src);v.remove();return false;}
+  try{
+    document.querySelector<HTMLVideoElement>('#native-media')?.pause();
+    const v=document.createElement('video');v.id='mse-media';v.muted=true;document.body.append(v);
+    const source=new MediaSource();v.src=URL.createObjectURL(source);
+    await new Promise<void>(resolve=>source.addEventListener('sourceopen',()=>resolve(),{once:true}));
+    const buffer=source.addSourceBuffer(mime);
+    const bytes=await(await fetch(url,{cache:'reload'})).arrayBuffer();
+    await new Promise<void>((resolve,reject)=>{buffer.addEventListener('updateend',()=>resolve(),{once:true});buffer.addEventListener('error',()=>reject(Error('MediaSource append failed')),{once:true});buffer.appendBuffer(bytes);});
+    source.endOfStream();await v.play();return true;
+  }catch(error){
+    // Engines may advertise the format but reject its constructor, buffer or decoding.
+    if((error as DOMException).name==='NotSupportedError')return false;
     throw error;
   }
-  const bytes=await(await fetch(url,{cache:'reload'})).arrayBuffer();
-  await new Promise<void>((resolve,reject)=>{buffer.addEventListener('updateend',()=>resolve(),{once:true});buffer.addEventListener('error',()=>reject(Error('MediaSource append failed')),{once:true});buffer.appendBuffer(bytes);});
-  source.endOfStream();await v.play();
-  return true;
 }
 
 // Public media endpoints commonly reject OPTIONS. Browser cache policy must not
