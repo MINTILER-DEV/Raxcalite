@@ -1,13 +1,13 @@
-import { currentURL, map, report, native, config } from '../core/context';
+import { currentURL, map, unmap, report, native, config } from '../core/context';
 export function installNavigation() {
   for (const key of ['pushState', 'replaceState'] as const) {
-    const original = history[key].bind(history);
-    history[key] = (data: any, unused: string, url?: string | URL | null) => {
+    const original = History.prototype[key];
+    History.prototype[key] = function(data: any, unused: string, url?: string | URL | null) {
       if (url != null) {
-        const target = new URL(String(url), currentURL());
+        const target = new URL(unmap(new URL(String(url), currentURL()).href));
         if (target.origin !== new URL(currentURL()).origin) throw new DOMException('Virtual history requires the same origin', 'SecurityError');
-        original(data, unused, map(target));
-      } else original(data, unused, url);
+        original.call(this,data, unused, map(target));
+      } else original.call(this,data, unused, url);
       notify(key === 'pushState' ? 'push' : 'replace');
     };
   }

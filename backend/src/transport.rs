@@ -745,7 +745,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             } else {
                 "'self'".into()
             };
-            response_headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&format!("sandbox allow-scripts allow-forms allow-same-origin allow-popups allow-downloads allow-modals; default-src 'self' {resource_origins} data: blob:; script-src 'self' {resource_origins} 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' {resource_origins} 'unsafe-inline'; connect-src 'self' {resource_origins} ws: wss:; frame-ancestors {} {} {resource_origins}; object-src 'none'; base-uri 'self' {resource_origins}", state.config.app_origin, content_origin)).unwrap());
+            response_headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&format!("sandbox allow-scripts allow-forms allow-same-origin allow-popups allow-downloads allow-modals; default-src 'self' {resource_origins} data: blob:; script-src 'self' {resource_origins} 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' {resource_origins} 'unsafe-inline'; connect-src 'self' {resource_origins} ws: wss: data: blob:; frame-ancestors {} {} {resource_origins}; object-src 'none'; base-uri 'self' {resource_origins}", state.config.app_origin, content_origin)).unwrap());
             response_headers.insert("origin-agent-cluster", HeaderValue::from_static("?1"));
             response_headers.insert(
                 "permissions-policy",
@@ -818,10 +818,35 @@ fn cookie_target(
     state: &AppState,
 ) -> Result<Url, (StatusCode, &'static str)> {
     let target = Url::parse(value).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid cookie URL"))?;
-    let referer = virtual_referrer(headers, &state.config).ok_or((
-        StatusCode::FORBIDDEN,
-        "Cookie access requires a virtual document",
-    ))?;
+    let referer = virtual_referrer(headers, &state.config)
+        .or_else(|| {
+            if state.config.isolation_domain.is_none() {
+                return None;
+            }
+            let document = Url::parse(headers.get("x-rax-document")?.to_str().ok()?).ok()?;
+            // Browser CORS requests always carry Origin. Same-origin requests may
+            // suppress Referer; their custom document header still stays host-bound.
+            if let Some(source) = headers
+                .get(header::ORIGIN)
+                .or_else(|| headers.get(header::REFERER))
+            {
+                let actual = Url::parse(source.to_str().ok()?).ok()?;
+                let host = headers.get(header::HOST)?.to_str().ok()?;
+                if actual.authority() != host
+                    || !crate::isolation::known_origin(
+                        &actual.origin().ascii_serialization(),
+                        &state.config,
+                    )
+                {
+                    return None;
+                }
+            }
+            Some(document)
+        })
+        .ok_or((
+            StatusCode::FORBIDDEN,
+            "Cookie access requires a virtual document",
+        ))?;
     if target.origin() != referer.origin() {
         return Err((StatusCode::FORBIDDEN, "Cross-origin cookie access blocked"));
     }

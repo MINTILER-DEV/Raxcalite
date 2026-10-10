@@ -56,9 +56,11 @@ export function rewriteLargeJS(source,url,options={}) {
       const key=prop(node),object=node.object;
       if(key==='location' && ['window','self','globalThis','document'].includes(object.name) && free(object)) {
         overwrite(node.start,node.end,`${rt}.location`);
+      } else if(key==='location' && object.name!==rt) {
+        wrap(object,`${rt}.locationObject(`,')');
       } else if(key==='url' && object.type==='MetaProperty' && object.meta.name==='import')overwrite(node.start,node.end,JSON.stringify(url));
     }
-    if(node.type==='VariableDeclarator' && node.id.type==='ObjectPattern' && free(node.init) && ['window','self','globalThis','document'].includes(node.init.name) && node.id.properties.some(p=>(p.key?.name||p.key?.value)==='location'))wrap(node.init,`${rt}.locationObject(`,')');
+    if(node.type==='VariableDeclarator' && node.id.type==='ObjectPattern' && node.init && node.id.properties.some(p=>(p.key?.name||p.key?.value)==='location'))wrap(node.init,`${rt}.locationObject(`,')');
     if(['ImportDeclaration','ExportNamedDeclaration','ExportAllDeclaration'].includes(node.type) && node.source)overwrite(node.source.start,node.source.end,JSON.stringify(map(node.source.value)));
     if(node.type==='ImportExpression')wrap(node.source,`${rt}.mapImport(`,`,${JSON.stringify(url)})`);
     if(node.type!=='CallExpression')return;

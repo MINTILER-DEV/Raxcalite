@@ -22,7 +22,9 @@ sw.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/')) return;
   if (!['/', '/index.html', '/icon.svg','/config.js','/runtime.js','/worker-runtime.js'].includes(url.pathname) && !url.pathname.startsWith('/assets/')) return;
   event.respondWith(fetch(event.request).then(async response => {
-    if (response.ok) { const cache = await caches.open(CACHE); await cache.put(event.request, response.clone()); }
+    // Native-path recovery may redirect / to a proxied website. Its private
+    // response must not enter the application asset cache.
+    if (response.ok && !new URL(response.url).pathname.startsWith('/p/')) { const cache = await caches.open(CACHE); await cache.put(event.request, response.clone()); }
     return response;
   }).catch(async () => (await caches.match(event.request)) || new Response('Raxcalite is offline', { status: 503 })));
 });

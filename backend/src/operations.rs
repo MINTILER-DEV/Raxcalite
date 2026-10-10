@@ -48,6 +48,85 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
     if !allowed {
         return transport::error(StatusCode::MISDIRECTED_REQUEST, "Unknown gateway host");
     }
+    // A native Location alias can navigate to / instead of a /p/ URL. Recover
+    // origin-relative paths only on an authenticated, previously visited site
+    // host. Keep gateway/runtime routes reserved and preserve POST via 307.
+    let path = request.uri().path();
+    let reserved = path.starts_with("/p/")
+        || path.starts_with("/ws/")
+        || path.starts_with("/assets/")
+        || [
+            "/api/cookie",
+            "/api/session",
+            "/api/session/reset",
+            "/api/worker-bootstrap",
+            "/health",
+            "/ready",
+            "/metrics",
+            "/config.js",
+            "/runtime.js",
+            "/worker-runtime.js",
+            "/sw.js",
+            "/icon.svg",
+            "/asset-manifest.json",
+        ]
+        .contains(&path);
+    if state.config.isolation_domain.is_some()
+        && !reserved
+        && host
+            != url::Url::parse(&state.config.app_origin)
+                .unwrap()
+                .authority()
+        && host
+            != url::Url::parse(&state.config.proxy_origin)
+                .unwrap()
+                .authority()
+    {
+        if let Ok((_, session, false)) = state.sessions.get(request.headers()).await {
+            let current = session.lock().await;
+            if let Some(mut target) = current
+                .origins
+                .values()
+                .filter_map(|value| url::Url::parse(value).ok())
+                .find(|url| {
+                    crate::isolation::origin(url, &state.config, &current)
+                        == format!("{protocol}://{host}")
+                })
+            {
+                target.set_path(path);
+                target.set_query(request.uri().query());
+                let mut response = (
+                    StatusCode::TEMPORARY_REDIRECT,
+                    [
+                        (
+                            "location",
+                            crate::isolation::mapped(&target, &state.config, &current),
+                        ),
+                        ("cache-control", "no-store".into()),
+                    ],
+                )
+                    .into_response();
+                if let Some(origin) = request.headers().get("origin").filter(|value| {
+                    value
+                        .to_str()
+                        .is_ok_and(|value| crate::isolation::known_origin(value, &state.config))
+                }) {
+                    response
+                        .headers_mut()
+                        .insert("access-control-allow-origin", origin.clone());
+                    response.headers_mut().insert(
+                        "access-control-allow-credentials",
+                        axum::http::HeaderValue::from_static("true"),
+                    );
+                }
+                return response;
+            }
+        }
+        return transport::error(
+            StatusCode::FORBIDDEN,
+            "Origin-relative route requires an authenticated virtual site",
+        );
+    }
     state.metrics.requests.fetch_add(1, Ordering::Relaxed);
     let response = next.run(request).await;
     if response.status().is_client_error() || response.status().is_server_error() {

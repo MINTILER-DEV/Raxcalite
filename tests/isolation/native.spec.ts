@@ -1,5 +1,20 @@
 import {test, expect} from '@playwright/test';
 const app = 'http://app.rax.localhost:3040';
+test('location aliases, suppressed referrers, raw native paths and data fetches retain virtual behavior',async({page,browser})=>{
+  await page.goto(app);await page.locator('#address').fill('http://localhost:4040/native-aliases');await page.locator('#address').press('Enter');
+  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/native-aliases'))?.url()).toBeTruthy();let frame=page.frames().find(f=>f.url().endsWith('/native-aliases'))!;
+  await expect.poll(()=>frame.evaluate(()=>(window as any).aliasResults)).toEqual({url:'http://localhost:4040/native-aliases',optional:'http://localhost:4040/native-aliases',document:'http://localhost:4040/native-aliases',extracted:'http://localhost:4040/native-aliases',plain:'plain',cookie:'bridge=yes'});
+  await expect.poll(()=>frame.evaluate(()=>(window as any).portResult)).toEqual({value:'one argument'});expect(await frame.evaluate(()=>(window as any).messageArguments)).toBe(1);expect(await frame.evaluate(()=>document.domain)).toBe('localhost');
+  expect(await frame.evaluate(async()=>await(await fetch('data:text/plain,data-value')).text())).toBe('data-value');
+  const xhr=await frame.evaluate(()=>new Promise(resolve=>{const x=new XMLHttpRequest();x.open('GET','http://127.0.0.1:4040/api/echo?cors=yes');x.responseType='json';x.onload=()=>resolve({credentials:x.withCredentials,status:x.status,origin:x.response.origin,cookie:x.response.cookie});x.onerror=()=>resolve({status:x.status});x.send();}));
+  expect(xhr).toEqual({credentials:false,status:200,origin:'http://localhost:4040',cookie:''});
+  const nativeHost=new URL(frame.url()).origin;
+  const outsider=await browser.newContext();const outside=await outsider.newPage();expect((await outside.goto(nativeHost+'/next'))!.status()).toBe(403);await outsider.close();
+  await frame.locator('#alias-next').click();await expect.poll(()=>page.frames().find(f=>f.url().includes('/next?alias=yes'))?.url()).toBeTruthy();frame=page.frames().find(f=>f.url().includes('/next?alias=yes'))!;
+  await frame.evaluate(()=>{window['location'].href='/next?raw=%2f';});
+  await expect.poll(()=>page.frames().find(f=>f.url().includes('/p/') && f.url().endsWith('/next?raw=%2f'))?.url()).toBeTruthy();
+  await expect(page.locator('#address')).toHaveValue('http://localhost:4040/next?raw=%2f');
+});
 test('large bundles and anonymous cross-origin resources load without exposing private credentials',async({page})=>{
   await page.goto(app);await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
   await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url()).toBeTruthy();const frame=page.frames().find(f=>f.url().endsWith('/next'))!;

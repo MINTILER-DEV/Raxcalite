@@ -3,14 +3,14 @@ import { nativeOrigin } from '../../../../shared/native-origin.mjs';
 export function installFrames() {
   // postMessage remains native. Envelopes carry virtual sender/target origins to mapped receivers.
   const original = native.postMessage!;
-  runtime.postMessage = function(targetWindow: Window | MessagePort | Worker, message: any, targetOrigin: string | WindowPostMessageOptions = '/', transfer?: Transferable[]) {
+  runtime.postMessage = function(targetWindow: Window | MessagePort | Worker, message: any, targetOrigin?: string | WindowPostMessageOptions, transfer?: Transferable[]) {
     const isWindow = targetWindow === window || targetWindow === parent || targetWindow === top || Object.prototype.toString.call(targetWindow) === '[object Window]';
-    if (!isWindow) return (targetWindow.postMessage as any)(message, targetOrigin, transfer);
-    const expected = typeof targetOrigin === 'string' ? targetOrigin : targetOrigin.targetOrigin ?? '/';
+    if (!isWindow) return Reflect.apply(targetWindow.postMessage,targetWindow,Array.prototype.slice.call(arguments,1));
+    const expected = typeof targetOrigin === 'string' ? targetOrigin : targetOrigin?.targetOrigin ?? '/';
     const target = expected === '/' ? new URL(currentURL()).origin : expected;
     const payload = { __rax_message__: true, sender: new URL(currentURL()).origin, target, payload: message };
     const actualTarget = config.isolation ? target === '*' ? '*' : new URL(map(target)).origin : native.location.origin;
-    return original.call(targetWindow as Window, payload, actualTarget, transfer || (typeof targetOrigin === 'object' ? targetOrigin.transfer : undefined) || []);
+    return original.call(targetWindow as Window, payload, actualTarget, transfer || (typeof targetOrigin === 'object' ? targetOrigin?.transfer : undefined) || []);
   };
   addEventListener('message', event => {
     const envelope = event.data;

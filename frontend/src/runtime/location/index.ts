@@ -21,6 +21,8 @@ export function installLocation() {
     getter(Document.prototype, 'URL', currentURL);
     getter(Document.prototype, 'documentURI', currentURL);
     getter(Document.prototype, 'baseURI', () => config.base === config.url ? currentURL() : config.base);
+    const domain=Object.getOwnPropertyDescriptor(Document.prototype,'domain');
+    if(domain?.get && domain.set)getter(Document.prototype,'domain',function(this:Document){return this===document?new URL(currentURL()).hostname:domain.get!.call(this);},function(this:Document,value){domain.set!.call(this,value);});
     const referrer = document.referrer;
     getter(Document.prototype, 'referrer', () => { try { return referrer ? runtime.unmap(referrer) : ''; } catch { return ''; } });
     getter(window, 'origin', () => new URL(currentURL()).origin);

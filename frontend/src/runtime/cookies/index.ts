@@ -4,11 +4,13 @@ export function installCookies() {
   getter(Document.prototype, 'cookie', () => {
     const request = new native.XMLHttpRequest();
     native.xhrOpen.call(request, 'GET', `/api/cookie?url=${encodeURIComponent(currentURL())}`, false);
+    request.setRequestHeader('x-rax-document',currentURL());
     try { native.xhrSend.call(request); return request.status === 200 ? request.responseText : ''; }
     catch { report('cookies', 'Cookie bridge failed'); return ''; }
   }, value => {
     const request = new native.XMLHttpRequest();
     native.xhrOpen.call(request, 'POST', '/api/cookie', false); request.setRequestHeader('content-type', 'application/json');
+    request.setRequestHeader('x-rax-document',currentURL());
     try { native.xhrSend.call(request, JSON.stringify({ url: currentURL(), value: String(value) })); if (request.status >= 400) report('cookies', 'Script cookie was rejected'); }
     catch { report('cookies', 'Cookie write failed'); }
   });

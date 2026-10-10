@@ -55,12 +55,18 @@ export function rewriteJS(source, url, options = {}) {
       const prop = n.computed && t.isStringLiteral(n.property) ? n.property.value : !n.computed && t.isIdentifier(n.property) ? n.property.name : '';
       if (prop === 'location' && t.isIdentifier(n.object) && ['window', 'self', 'globalThis', 'document'].includes(n.object.name) && !bound(path, n.object.name)) {
         path.replaceWith(runtime('location')); changed = true; path.skip();
+      } else if (prop === 'location' && !t.isIdentifier(n.object,{name:'__RAX_RUNTIME_v1__'})) {
+        n.object=t.callExpression(runtime('locationObject'),[n.object]); changed=true;
       } else if (prop === 'url' && t.isMetaProperty(n.object) && n.object.meta.name === 'import') {
         path.replaceWith(t.stringLiteral(url)); changed = true;
       }
     },
+    OptionalMemberExpression(path) {
+      const n=path.node;const prop=n.computed && t.isStringLiteral(n.property)?n.property.value:!n.computed && t.isIdentifier(n.property)?n.property.name:'';
+      if(prop==='location' && !t.isIdentifier(n.object,{name:'__RAX_RUNTIME_v1__'})){n.object=t.callExpression(runtime('locationObject'),[n.object]);changed=true;}
+    },
     VariableDeclarator(path) {
-      if (!t.isObjectPattern(path.node.id) || !t.isIdentifier(path.node.init) || !['window', 'self', 'globalThis', 'document'].includes(path.node.init.name) || bound(path, path.node.init.name)) return;
+      if (!t.isObjectPattern(path.node.id) || !path.node.init) return;
       // A proxy preserves all other destructured keys and evaluates getters once.
       if (path.node.id.properties.some(p => t.isObjectProperty(p) && (t.isIdentifier(p.key, {name:'location'}) || t.isStringLiteral(p.key, {value:'location'})))) {
         path.node.init = t.callExpression(runtime('locationObject'), [path.node.init]); changed = true;

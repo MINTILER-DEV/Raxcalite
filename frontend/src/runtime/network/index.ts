@@ -51,19 +51,27 @@ export function installNetwork() {
   }
   if (native.XMLHttpRequest) {
     const targets = new WeakMap<XMLHttpRequest,string>();
+    const credentialModes=new WeakMap<XMLHttpRequest,boolean>();
+    const credentialsDescriptor=Object.getOwnPropertyDescriptor(native.XMLHttpRequest.prototype,'withCredentials')!;
+    Object.defineProperty(native.XMLHttpRequest.prototype,'withCredentials',{...credentialsDescriptor,
+      get(){return credentialModes.get(this)??false;},
+      set(value){credentialsDescriptor.set!.call(this,value);credentialModes.set(this,!!value);}
+    });
     const set = native.XMLHttpRequest.prototype.setRequestHeader;
     native.XMLHttpRequest.prototype.setRequestHeader = function(name,value) { if(name.toLowerCase()==='authorization') {set.call(this,'x-rax-auth-origin',new URL(targets.get(this)!).origin);set.call(this,'x-rax-authorization',value);} else set.call(this,name.toLowerCase()==='priority'?'x-rax-priority':name,value); };
     const open = native.XMLHttpRequest.prototype.open as (this: XMLHttpRequest, method: string, url: string, async: boolean, username?: string | null, password?: string | null) => void;
     native.XMLHttpRequest.prototype.open = function(method: string, url: string | URL, async: boolean = true, username?: string | null, password?: string | null) {
       trace('network','XMLHttpRequest URL and origin metadata mapped');
-      targets.set(this,new URL(String(url),currentURL()).href);
+      targets.set(this,unmap(new URL(String(url),currentURL()).href));
       open.call(this, method, map(url), async, username, password);
       this.setRequestHeader('x-rax-origin', new URL(currentURL()).origin);
       this.setRequestHeader('x-rax-mode', 'cors');
     };
     const send = native.XMLHttpRequest.prototype.send as (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) => void;
     native.XMLHttpRequest.prototype.send = function(body) {
-      this.setRequestHeader('x-rax-credentials', this.withCredentials ? 'include' : 'same-origin'); send.call(this, body);
+      this.setRequestHeader('x-rax-credentials', this.withCredentials ? 'include' : 'same-origin');
+      if(config.isolation)credentialsDescriptor.set!.call(this,true);
+      send.call(this, body);
     };
     const responseURL = Object.getOwnPropertyDescriptor(native.XMLHttpRequest.prototype, 'responseURL');
     if (responseURL?.get) getter(native.XMLHttpRequest.prototype, 'responseURL', function(this: XMLHttpRequest) { return unmap(responseURL.get!.call(this)); });
