@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { startTransformer } from './transformer.mjs';
+import { existsSync } from 'node:fs';
+if (existsSync('.env')) process.loadEnvFile('.env');
 const env = { ...process.env, RAX_TRANSFORM_TOKEN: process.env.RAX_TRANSFORM_TOKEN || randomBytes(32).toString('hex') };
 async function run(command, args) { return new Promise((resolve, reject) => { const child = spawn(command, args, { stdio: 'inherit', env, shell: false }); child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(`${command} exited ${code}`))); }); }
 await run(process.execPath, ['tools/build.mjs']);

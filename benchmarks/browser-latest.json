@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-10T03:02:02.493Z",
+  "pages": {
+    "direct": {
+      "loadMs": 17.78,
+      "heapBytes": 10000000
+    },
+    "proxied": {
+      "loadMs": 52.26,
+      "heapBytes": 10000000
+    }
+  },
+  "publicWebsite": {
+    "status": 200,
+    "hasRuntime": true,
+    "hasContent": true
+  }
+}

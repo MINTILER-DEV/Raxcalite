@@ -1,0 +1,8 @@
+.git
+local
+node_modules
+target
+frontend/dist
+test-results
+playwright-report
+.env

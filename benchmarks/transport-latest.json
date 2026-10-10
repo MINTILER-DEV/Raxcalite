@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-10T03:02:00.474Z",
+  "measurements": {
+    "downloads-1": {
+      "bytes": 8388608,
+      "elapsedMs": 473.03,
+      "MiBPerSecond": 16.91
+    },
+    "downloads-16": {
+      "bytes": 134217728,
+      "elapsedMs": 1256.41,
+      "MiBPerSecond": 101.88
+    },
+    "cold": {
+      "status": 200,
+      "elapsedMs": 45.54
+    },
+    "cached-transform": {
+      "status": 200,
+      "elapsedMs": 2.11
+    }
+  }
+}

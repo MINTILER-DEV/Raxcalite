@@ -1,0 +1,28 @@
+{
+  "node": "v24.13.1",
+  "platform": "win32",
+  "date": "2026-10-10T02:57:09.829Z",
+  "measurements": {
+    "html": {
+      "bytes": 21024,
+      "iterations": 40,
+      "medianMs": 26.34,
+      "p95Ms": 35.55,
+      "rssDeltaMiB": 38.4
+    },
+    "css": {
+      "bytes": 12280,
+      "iterations": 40,
+      "medianMs": 4.89,
+      "p95Ms": 7.65,
+      "rssDeltaMiB": 20.69
+    },
+    "js": {
+      "bytes": 19169,
+      "iterations": 40,
+      "medianMs": 22.61,
+      "p95Ms": 54.54,
+      "rssDeltaMiB": 106.91
+    }
+  }
+}
