@@ -1,5 +1,21 @@
 import {test,expect} from '@playwright/test';
 
+async function installMSE({mime,url}:{mime:string,url:string}){
+  document.querySelector<HTMLVideoElement>('#native-media')?.pause();
+  const v=document.createElement('video');v.id='mse-media';v.muted=true;document.body.append(v);
+  const source=new MediaSource();v.src=URL.createObjectURL(source);
+  await new Promise<void>(resolve=>source.addEventListener('sourceopen',()=>resolve(),{once:true}));
+  let buffer:SourceBuffer;
+  try{buffer=source.addSourceBuffer(mime);}catch(error){
+    if((error as DOMException).name==='NotSupportedError'){URL.revokeObjectURL(v.src);v.remove();return false;}
+    throw error;
+  }
+  const bytes=await(await fetch(url,{cache:'reload'})).arrayBuffer();
+  await new Promise<void>((resolve,reject)=>{buffer.addEventListener('updateend',()=>resolve(),{once:true});buffer.addEventListener('error',()=>reject(Error('MediaSource append failed')),{once:true});buffer.appendBuffer(bytes);});
+  source.endOfStream();await v.play();
+  return true;
+}
+
 // Public media endpoints commonly reject OPTIONS. Browser cache policy must not
 // turn a safelisted GET into a preflight, while author headers still require one.
 test('cross-origin video streams play with native and MediaSource loading',async({page,browser})=>{
@@ -20,28 +36,21 @@ test('cross-origin video streams play with native and MediaSource loading',async
   });
   expect(requests).toMatchObject({status:206,range:expect.stringMatching(/^bytes 0-31\/\d+$/),bytes:32,cookie:'',xhr:{status:200,cookie:''},rejected:['TypeError','TypeError','TypeError','TypeError','TypeError']});
   expect((requests.xhr as {bytes:number}).bytes).toBeGreaterThan(1000);
+  const mime='video/mp4; codecs="avc1.42c00b, mp4a.40.2"';
   const reference=await browser.newContext();const direct=await reference.newPage();await direct.goto('http://localhost:4040/next');
-  const nativePlayback=await direct.evaluate(async()=>{const v=document.createElement('video');v.muted=true;v.src='/stream.mp4';document.body.append(v);void v.play().catch(()=>{});await new Promise(resolve=>setTimeout(resolve,1500));return v.currentTime>0.5;});await reference.close();
+  const nativePlayback=await direct.evaluate(async()=>{const v=document.createElement('video');v.muted=true;v.src='/stream.mp4';document.body.append(v);void v.play().catch(()=>{});await new Promise(resolve=>setTimeout(resolve,1500));return v.currentTime>0.5;});
+  // isTypeSupported can report true even when addSourceBuffer rejects muxed media.
+  // Check the same source directly before requiring proxied MediaSource playback.
+  const supported=await direct.evaluate(mime=>typeof MediaSource!=='undefined' && MediaSource.isTypeSupported(mime),mime) && await direct.evaluate(installMSE,{mime,url:'http://127.0.0.1:4040/stream.mp4'});await reference.close();
   test.info().annotations.push({type:'Native video playback support',description:String(nativePlayback)});
   if(nativePlayback){
-  await frame.evaluate(()=>{const v=document.createElement('video');v.id='native-media';v.muted=true;v.crossOrigin='anonymous';v.src='http://127.0.0.1:4040/stream.mp4';document.body.append(v);void v.play();});
-  await expect.poll(()=>frame.evaluate(()=>document.querySelector<HTMLVideoElement>('#native-media')!.currentTime)).toBeGreaterThan(0.5);
-  expect(await frame.evaluate(()=>document.querySelector<HTMLVideoElement>('#native-media')!.error?.message??null)).toBeNull();
+    await frame.evaluate(()=>{const v=document.createElement('video');v.id='native-media';v.muted=true;v.crossOrigin='anonymous';v.src='http://127.0.0.1:4040/stream.mp4';document.body.append(v);void v.play();});
+    await expect.poll(()=>frame.evaluate(()=>document.querySelector<HTMLVideoElement>('#native-media')!.currentTime)).toBeGreaterThan(0.5);
+    expect(await frame.evaluate(()=>document.querySelector<HTMLVideoElement>('#native-media')!.error?.message??null)).toBeNull();
   }
-  const mime='video/mp4; codecs="avc1.42c00b, mp4a.40.2"';
-  const supported=await frame.evaluate(mime=>typeof MediaSource!=='undefined' && MediaSource.isTypeSupported(mime),mime);
   test.info().annotations.push({type:'MediaSource codec support',description:String(supported)});
   if(supported){
-    await frame.evaluate(async mime=>{
-      document.querySelector<HTMLVideoElement>('#native-media')?.pause();
-      const v=document.createElement('video');v.id='mse-media';v.muted=true;document.body.append(v);
-      const source=new MediaSource();v.src=URL.createObjectURL(source);
-      await new Promise<void>(resolve=>source.addEventListener('sourceopen',()=>resolve(),{once:true}));
-      const buffer=source.addSourceBuffer(mime);
-      const bytes=await(await fetch('http://127.0.0.1:4040/stream.mp4',{cache:'reload'})).arrayBuffer();
-      await new Promise<void>((resolve,reject)=>{buffer.addEventListener('updateend',()=>resolve(),{once:true});buffer.addEventListener('error',()=>reject(Error('MediaSource append failed')),{once:true});buffer.appendBuffer(bytes);});
-      source.endOfStream();await v.play();
-    },mime);
+    expect(await frame.evaluate(installMSE,{mime,url:'http://127.0.0.1:4040/stream.mp4'})).toBe(true);
     await expect.poll(()=>frame.evaluate(()=>document.querySelector<HTMLVideoElement>('#mse-media')!.currentTime)).toBeGreaterThan(0.5);
     expect(await frame.evaluate(()=>document.querySelector<HTMLVideoElement>('#mse-media')!.error?.message??null)).toBeNull();
   }
