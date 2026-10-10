@@ -11,11 +11,21 @@ export function installScripts() {
     get(target, key) { return key === 'location' ? runtime.location : Reflect.get(target, key, target); },
     set(target, key, value) { if (key === 'location') { runtime.location = value; return true; } return Reflect.set(target, key, value, target); }
   });
-  const Constructor = globalThis.Function;
-  globalThis.Function = new Proxy(Constructor, {
-    apply(target, receiver, args) { return Reflect.apply(target, receiver, rewriteFunction(args, currentURL())); },
-    construct(target, args, newTarget) { return Reflect.construct(target, rewriteFunction(args, currentURL()), newTarget); }
-  });
+  const constructors=[
+    {value:globalThis.Function,async:false,generator:false},
+    {value:Object.getPrototypeOf(async function(){}).constructor,async:true,generator:false},
+    {value:Object.getPrototypeOf(function*(){}).constructor,async:false,generator:true},
+    {value:Object.getPrototypeOf(async function*(){}).constructor,async:true,generator:true},
+  ];
+  for(const {value:Constructor,async,generator} of constructors){
+    const wrap=(args:any[])=>{try{return rewriteFunction(args,currentURL(),{async,generator});}catch(error){report('javascript','Generated function could not be transformed');throw error;}};
+    const proxy=new Proxy(Constructor,{
+      apply(target,receiver,args){return Reflect.apply(target,receiver,wrap(args));},
+      construct(target,args,newTarget){return Reflect.construct(target,wrap(args),newTarget);},
+    });
+    Object.defineProperty(Constructor.prototype,'constructor',{...Object.getOwnPropertyDescriptor(Constructor.prototype,'constructor'),value:proxy});
+    if(!async && !generator)globalThis.Function=proxy;
+  }
   for (const name of ['setTimeout', 'setInterval'] as const) {
     const schedule = globalThis[name];
     globalThis[name] = ((handler: TimerHandler, ...args: any[]) => (schedule as any)(typeof handler === 'string' ? rewrite(handler) : handler, ...args)) as any;

@@ -74,9 +74,9 @@ export function rewriteJS(source, url, options = {}) {
   if (!changed && !options.sourceMaps) return { code: source, map: null };
   return generate(ast, { sourceMaps: !!options.sourceMaps, sourceFileName: url, comments: true, retainLines: true }, source);
 }
-export function rewriteFunction(args, url) {
+export function rewriteFunction(args, url, {async=false,generator=false}={}) {
   const values = args.map(String); const body = values.pop() || '';
-  const transformed = rewriteJS(`function anonymous(${values.join(',')}){${body}\n}`, url).code;
+  const transformed = rewriteJS(`${async?'async ':''}function${generator?'*':''} anonymous(${values.join(',')}\n){${body}\n}`, url).code;
   const fn = parse(transformed).program.body[0];
   return [...fn.params.map(p => generate(p).code), generate(fn.body).code.slice(1, -1)];
 }
