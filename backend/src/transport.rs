@@ -200,12 +200,19 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             .cookies
             .matches(&target)
             .into_iter()
-            // Conservative SameSite handling: cross-virtual-origin requests only receive explicit None cookies.
             .filter(|cookie| {
-                same_origin
-                    || cookie
-                        .same_site()
-                        .is_some_and(|s| format!("{s:?}") == "None")
+                crate::cookies::permitted(
+                    cookie,
+                    virtual_origin.as_ref(),
+                    &target,
+                    request_mode == "navigate"
+                        && parts
+                            .headers
+                            .get("sec-fetch-dest")
+                            .and_then(|v| v.to_str().ok())
+                            != Some("iframe"),
+                    ["GET", "HEAD", "OPTIONS", "TRACE"].contains(&parts.method.as_str()),
+                )
             })
             .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
             .collect::<Vec<_>>()
@@ -328,12 +335,12 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
     if credentials {
         let mut jar = session.lock().await;
         for value in upstream_headers.get_all(header::SET_COOKIE) {
-            if let Ok(raw) = value.to_str()
-                && raw.len() <= 4096
-                && jar.cookies.iter_any().count() < 128
-                && crate::cookies::validate(raw, &target, false, &jar.cookies).is_ok()
-            {
-                let _ = jar.cookies.parse(raw, &target);
+            if let Ok(raw) = value.to_str() {
+                match crate::cookies::insert(&mut jar.cookies, raw, &target, false) {
+                    Ok(true) => tracing::warn!("Virtual cookie capacity eviction"),
+                    Ok(false) => {}
+                    Err(_) => tracing::debug!("Upstream cookie rejected"),
+                }
             }
         }
     }
@@ -635,13 +642,13 @@ pub async fn write_cookie(
         return error(StatusCode::BAD_REQUEST, "Invalid script cookie");
     }
     let mut jar = session.lock().await;
-    if !jar.allow() || jar.cookies.iter_any().count() >= 128 {
+    if !jar.allow() {
         return error(StatusCode::TOO_MANY_REQUESTS, "Cookie jar limit reached");
     }
     if let Err(message) = crate::cookies::validate(&input.value, &target, true, &jar.cookies) {
         return error(StatusCode::FORBIDDEN, message);
     }
-    match jar.cookies.parse(&input.value, &target) {
+    match crate::cookies::insert(&mut jar.cookies, &input.value, &target, true) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(_) => error(StatusCode::BAD_REQUEST, "Invalid cookie attributes"),
     }

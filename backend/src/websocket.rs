@@ -93,9 +93,6 @@ pub async fn upgrade(
             "http"
         })
         .ok();
-    let same_origin = sender
-        .as_ref()
-        .is_some_and(|s| s.origin() == cookie_target.origin());
     let cookie = session
         .lock()
         .await
@@ -103,10 +100,7 @@ pub async fn upgrade(
         .matches(&cookie_target)
         .into_iter()
         .filter(|cookie| {
-            same_origin
-                || cookie
-                    .same_site()
-                    .is_some_and(|s| format!("{s:?}") == "None")
+            crate::cookies::permitted(cookie, sender.as_ref(), &cookie_target, false, false)
         })
         .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
         .collect::<Vec<_>>()

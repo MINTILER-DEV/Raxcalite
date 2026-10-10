@@ -21,3 +21,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sha2 = "0.10"
 bytes = "1"
 psl = "2"
+aes-gcm = "0.10"

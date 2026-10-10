@@ -57,11 +57,23 @@ async fn main() {
             .no_proxy()
             .build()
             .unwrap(),
-        sessions: sessions::Sessions::default(),
+        sessions: sessions::Sessions::load().expect("Session storage configuration"),
         limit: Arc::new(Semaphore::new(32)),
         transform_limit: Arc::new(Semaphore::new(8)),
         metrics: Arc::new(operations::Metrics::default()),
     };
+    let persisted = state.sessions.clone();
+    let maintenance = persisted.clone();
+    let cleanup = tokio::spawn(async move {
+        let mut timer = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            timer.tick().await;
+            maintenance.maintain().await;
+            if maintenance.persist().await.is_err() {
+                tracing::error!("Encrypted session checkpoint failed");
+            }
+        }
+    });
     let app = Router::new()
         .fallback_service(
             ServeDir::new("frontend/dist")
@@ -116,4 +128,8 @@ async fn main() {
         axum::serve(app_listener, app).with_graceful_shutdown(operations::shutdown()),
         axum::serve(proxy_listener, proxy).with_graceful_shutdown(operations::shutdown())
     );
+    cleanup.abort();
+    if persisted.persist().await.is_err() {
+        tracing::error!("Final session checkpoint failed");
+    }
 }
