@@ -25,8 +25,8 @@ export function installWorkers() {
     const own = (registration?: ServiceWorkerRegistration) => registration && new URL(unmap(registration.scope)).origin === new URL(currentURL()).origin;
     container.register = async (source, options = {}) => {
       if (!config.isolation || options.type === 'module') {
-        report('workers', 'Upstream service workers require isolated origins and classic scripts');
-        throw new DOMException('Use an isolated origin and a classic URL-backed service worker', 'NotSupportedError');
+        report('workers', options.type === 'module' ? 'Native module service-worker loading omits gateway session credentials; use a classic worker' : 'Upstream service workers require isolated origins');
+        throw new DOMException('Use an isolated origin and a URL-backed service worker', 'NotSupportedError');
       }
       const url = new URL(String(source), currentURL());const scope = new URL(String(options.scope || '.'), url);
       if (url.origin !== new URL(currentURL()).origin || scope.origin !== url.origin || !['http:','https:'].includes(url.protocol)) throw new DOMException('Service workers require the current virtual origin', 'SecurityError');
@@ -37,7 +37,7 @@ export function installWorkers() {
     container.getRegistrations = async () => (await native.workerRegistrations!()).filter(r=>own(r));
     for (const [prototype,key] of [[ServiceWorker.prototype,'scriptURL'],[ServiceWorkerRegistration.prototype,'scope']] as const) {
       const descriptor=Object.getOwnPropertyDescriptor(prototype,key);
-      if(descriptor?.get)getter(prototype,key,function(this:any){const value=unmap(descriptor.get!.call(this));return value.replace(/([?&])__rax_worker=service(?:&|$)/,'$1').replace(/[?&]$/,'');});
+      if(descriptor?.get)getter(prototype,key,function(this:any){const value=unmap(descriptor.get!.call(this));return value.replace(/([?&])__rax_worker=service(?:-module)?(?:&|$)/,'$1').replace(/[?&]$/,'');});
     }
     const controller=Object.getOwnPropertyDescriptor(ServiceWorkerContainer.prototype,'controller');
     if(controller?.get)getter(container,'controller',()=>{const worker=controller.get!.call(container);return worker?.scriptURL===`${native.location.origin}/sw.js`?null:worker;});

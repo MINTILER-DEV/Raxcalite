@@ -1,5 +1,14 @@
 import {test, expect} from '@playwright/test';
 const app = 'http://app.rax.localhost:3040';
+test('module service workers are explicitly restricted when native loading cannot authenticate',async({page,browser})=>{
+  const direct=await browser.newContext();const reference=await direct.newPage();await reference.goto('http://localhost:4040/next');
+  const native=await reference.evaluate(async()=>{try{await navigator.serviceWorker.register('/module-site-worker.js',{type:'module',scope:'/'});await navigator.serviceWorker.ready;return {supported:true}}catch(e){return {supported:false,error:(e as DOMException).name}}});await direct.close();
+  await page.goto(app);await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
+  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url()).toBeTruthy();const frame=page.frames().find(f=>f.url().endsWith('/next'))!;await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
+  const proxied=await frame.evaluate(async()=>{try{const r=await navigator.serviceWorker.register('/module-site-worker.js',{type:'module',scope:'/'});await navigator.serviceWorker.ready;return {supported:true,scope:r.scope,script:r.active!.scriptURL}}catch(e){return {supported:false,error:(e as DOMException).name}}});
+  test.info().annotations.push({type:'native module service-worker support',description:JSON.stringify(native)});
+  expect(proxied).toEqual({supported:false,error:'NotSupportedError'});
+});
 test('classic upstream service worker owns only its isolated virtual scope',async({page})=>{
   await page.goto(app);await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
   await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url()).toBeTruthy();const frame=page.frames().find(f=>f.url().endsWith('/next'))!;await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');

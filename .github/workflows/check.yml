@@ -46,6 +46,7 @@ jobs:
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
       - run: npm test
+      - run: cargo build && node tests/operations.mjs
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
       - run: npm run test:isolation

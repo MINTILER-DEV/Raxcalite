@@ -592,7 +592,11 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             .map_err(|_| fail("Transformer unavailable"))?;
         let mut bytes = Vec::new();
         let mut stream = upstream.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        let deadline = tokio::time::Instant::now() + state.config.timeout;
+        while let Some(chunk) = tokio::time::timeout_at(deadline, stream.next())
+            .await
+            .map_err(|_| fail("Transformable body deadline exceeded"))?
+        {
             let chunk = chunk.map_err(|_| fail("Upstream body failed"))?;
             if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
                 return Err((
@@ -686,7 +690,18 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-store"),
         );
-        let stream = async_stream(upstream.bytes_stream(), permit);
+        let duration = if mime == "text/event-stream" {
+            3600
+        } else {
+            600
+        };
+        let shutdown = state.shutdown.subscribe();
+        let stream = async_stream(upstream.bytes_stream(), permit).take_until(async move {
+            tokio::select! {
+                _ = crate::operations::wait_shutdown(shutdown) => {},
+                _ = tokio::time::sleep(std::time::Duration::from_secs(duration)) => {}
+            }
+        });
         response_body = Body::from_stream(stream);
     }
     let mut response = Response::new(response_body);

@@ -163,6 +163,9 @@ impl Sessions {
         }
         drop(sessions);
         let plaintext = serde_json::to_vec(&records).map_err(|_| "Session serialization failed")?;
+        if plaintext.len() > 4 * 1024 * 1024 {
+            return Err("Persistent session capacity exceeded".into());
+        }
         let nonce = aes_gcm::Aes256Gcm::generate_nonce(&mut OsRng);
         let encrypted = store
             .cipher
@@ -244,6 +247,25 @@ impl Sessions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn capacity_rejects_new_users_and_reclaims_expired_sessions() {
+        let sessions = Sessions::default();
+        let mut first = None;
+        for _ in 0..256 {
+            let entry = sessions.get(&HeaderMap::new()).await.unwrap();
+            if first.is_none() {
+                first = Some(entry);
+            }
+        }
+        assert!(sessions.get(&HeaderMap::new()).await.is_err());
+        let (id, session, _) = first.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", format!("rax_session={id}").parse().unwrap());
+        assert!(!sessions.get(&headers).await.unwrap().2);
+        session.lock().await.touched = Instant::now() - Duration::from_secs(1801);
+        assert!(sessions.get(&HeaderMap::new()).await.unwrap().2);
+        assert_eq!(sessions.0.lock().await.len(), 256);
+    }
     #[tokio::test]
     async fn persistence_authentication_expiration_and_rate_limits() {
         let path = std::env::temp_dir().join(format!("rax-session-{}.enc", uuid::Uuid::new_v4()));

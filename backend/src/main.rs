@@ -32,6 +32,7 @@ pub struct AppState {
     limit: Arc<Semaphore>,
     transform_limit: Arc<Semaphore>,
     metrics: Arc<operations::Metrics>,
+    shutdown: tokio::sync::watch::Sender<bool>,
 }
 #[tokio::main]
 async fn main() {
@@ -62,8 +63,17 @@ async fn main() {
         limit: Arc::new(Semaphore::new(32)),
         transform_limit: Arc::new(Semaphore::new(8)),
         metrics: Arc::new(operations::Metrics::default()),
+        shutdown: tokio::sync::watch::channel(false).0,
     };
     let persisted = state.sessions.clone();
+    let shutdown = state.shutdown.clone();
+    tokio::spawn(async move {
+        operations::shutdown().await;
+        let _ = shutdown.send(true);
+    });
+    let app_shutdown = state.shutdown.subscribe();
+    let proxy_shutdown = state.shutdown.subscribe();
+    let force_shutdown = state.shutdown.subscribe();
     let maintenance = persisted.clone();
     let cleanup = tokio::spawn(async move {
         let mut timer = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -81,6 +91,7 @@ async fn main() {
             ServeDir::new("frontend/dist")
                 .not_found_service(ServeFile::new("frontend/dist/index.html")),
         )
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             operations::guard,
@@ -118,9 +129,11 @@ async fn main() {
         .route("/metrics", get(operations::metrics))
         .route("/api/session/reset", post(transport::reset_session))
         .route("/api/session", get(isolation::bootstrap))
+        .route("/api/worker-bootstrap", get(isolation::worker_bootstrap))
         .fallback_service(ServeDir::new("frontend/dist").append_index_html_on_directories(false))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(cors)
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             operations::guard,
@@ -138,10 +151,19 @@ async fn main() {
         "Raxcalite: {} (content: {})",
         config.app_origin, config.proxy_origin
     );
-    let _ = tokio::join!(
-        axum::serve(app_listener, app).with_graceful_shutdown(operations::shutdown()),
-        axum::serve(proxy_listener, proxy).with_graceful_shutdown(operations::shutdown())
-    );
+    let servers = async {
+        tokio::join!(
+            axum::serve(app_listener, app)
+                .with_graceful_shutdown(operations::wait_shutdown(app_shutdown)),
+            axum::serve(proxy_listener, proxy)
+                .with_graceful_shutdown(operations::wait_shutdown(proxy_shutdown))
+        )
+    };
+    tokio::pin!(servers);
+    tokio::select! {
+        _=&mut servers=>{},
+        _=operations::wait_shutdown(force_shutdown)=>{let _=tokio::time::timeout(std::time::Duration::from_secs(10),&mut servers).await;}
+    }
     cleanup.abort();
     if persisted.persist().await.is_err() {
         tracing::error!("Final session checkpoint failed");

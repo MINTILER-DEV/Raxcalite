@@ -156,3 +156,36 @@ pub async fn app_config(State(state): State<crate::AppState>) -> Response {
     )
         .into_response()
 }
+#[derive(serde::Deserialize)]
+pub struct BootstrapQuery {
+    url: String,
+}
+pub async fn worker_bootstrap(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(input): axum::extract::Query<BootstrapQuery>,
+) -> Response {
+    let Ok(target) = Url::parse(&input.url) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let Ok((_, session, _)) = state.sessions.get(&headers).await else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let session = session.lock().await;
+    let actual = origin(&target, &state.config, &session);
+    let expected = Url::parse(&actual).unwrap();
+    if headers.get("host").and_then(|v| v.to_str().ok())
+        != Some(&expected[url::Position::BeforeHost..url::Position::AfterPort])
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let config = serde_json::json!({"url":target.as_str(),"base":target.as_str(),"worker":true,"appOrigin":state.config.app_origin,"isolation":settings(&state.config,&session)});
+    (
+        [
+            ("content-type", "text/javascript; charset=utf-8"),
+            ("cache-control", "no-store"),
+        ],
+        format!("import '/worker-runtime.js';__RAX_RUNTIME_v1__.initialize({config});"),
+    )
+        .into_response()
+}

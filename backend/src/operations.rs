@@ -97,3 +97,8 @@ pub async fn shutdown() {
         let _ = tokio::signal::ctrl_c().await;
     }
 }
+pub async fn wait_shutdown(mut receiver: tokio::sync::watch::Receiver<bool>) {
+    if !*receiver.borrow() {
+        let _ = receiver.changed().await;
+    }
+}

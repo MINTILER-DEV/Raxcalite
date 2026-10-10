@@ -16,6 +16,16 @@ use tokio_tungstenite::{
         protocol::{CloseFrame, WebSocketConfig, frame::coding::CloseCode},
     },
 };
+struct ActiveSocket(std::sync::Arc<tokio::sync::Mutex<crate::sessions::Session>>);
+impl Drop for ActiveSocket {
+    fn drop(&mut self) {
+        let session = self.0.clone();
+        tokio::spawn(async move {
+            let mut session = session.lock().await;
+            session.active_ws = session.active_ws.saturating_sub(1);
+        });
+    }
+}
 
 pub async fn upgrade(
     State(state): State<AppState>,
@@ -84,17 +94,17 @@ pub async fn upgrade(
         }
         s.active_ws += 1;
     }
+    let active = ActiveSocket(session.clone());
+    let shutdown = state.shutdown.subscribe();
     let permit = match state.limit.clone().try_acquire_owned() {
         Ok(p) => p,
         Err(_) => {
-            session.lock().await.active_ws -= 1;
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
     let mut request = match target.as_str().into_client_request() {
         Ok(r) => r,
         Err(_) => {
-            session.lock().await.active_ws -= 1;
             return error(StatusCode::BAD_REQUEST, "Invalid WebSocket URL");
         }
     };
@@ -159,7 +169,6 @@ pub async fn upgrade(
     let (upstream, response) = match connected {
         Ok(Ok(c)) => c,
         _ => {
-            session.lock().await.active_ws -= 1;
             return error(
                 StatusCode::BAD_GATEWAY,
                 "WebSocket upstream connection failed",
@@ -177,7 +186,7 @@ pub async fn upgrade(
         ws
     };
     ws.max_message_size(4 * 1024 * 1024).max_frame_size(1024 * 1024).on_upgrade(move |socket| async move {
-        let _permit = permit;
+        let _permit = permit; let _active=active;
         let (mut browser_tx, mut browser_rx) = socket.split();
         let (mut upstream_tx, mut upstream_rx) = upstream.split();
         let forward = async {
@@ -201,7 +210,11 @@ pub async fn upgrade(
                 if browser_tx.send(message).await.is_err() { break; }
             }
         };
-        tokio::select! { _ = forward => {}, _ = backward => {}, _ = tokio::time::sleep(std::time::Duration::from_secs(3600)) => {} }
-        session.lock().await.active_ws -= 1;
+        let stopped=tokio::select! { _ = forward => false, _ = backward => false, _ = tokio::time::sleep(std::time::Duration::from_secs(3600)) => true, _ = crate::operations::wait_shutdown(shutdown) => true };
+        if stopped {
+            let close=Message::Close(Some(axum::extract::ws::CloseFrame{code:1001,reason:"Server connection deadline".into()}));
+            let _=tokio::time::timeout(std::time::Duration::from_secs(1),browser_tx.send(close)).await;
+            let _=tokio::time::timeout(std::time::Duration::from_secs(1),upstream_tx.close()).await;
+        }
     })
 }
