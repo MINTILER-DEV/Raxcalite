@@ -8,6 +8,7 @@ import { installCookies } from './cookies';
 import { installDOM } from './dom';
 import { installFrames } from './frames';
 import { installScripts } from './dom/scripts';
+import { installMedia } from './media';
 
 function initialize(value: RuntimeConfig) {
   if (config) return;
@@ -27,7 +28,7 @@ function initialize(value: RuntimeConfig) {
   if (!value.worker) installLocation();
   else runtime.location = new URL(value.url);
   installNetwork(); installStorage(); installWorkers();
-  if (!value.worker) { installCookies(); installScripts(); installDOM(); installNavigation(); installFrames(); }
+  if (!value.worker) { installCookies(); installScripts(); installDOM(); installMedia(); installNavigation(); installFrames(); }
   for (const warning of value.warnings || []) report('rewriting', warning);
 }
 runtime.initialize = initialize;

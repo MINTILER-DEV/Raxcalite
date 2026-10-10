@@ -1,5 +1,60 @@
 import {test,expect} from '@playwright/test';
 
+test('media session artwork uses mapped resources and preserves native metadata behavior',async({page})=>{
+  await page.addInitScript(()=>{
+    if(typeof MediaMetadata!=='undefined') (window as any).__nativeArtwork={
+      Constructor:MediaMetadata,
+      get:Object.getOwnPropertyDescriptor(MediaMetadata.prototype,'artwork')!.get
+    };
+  });
+  await page.goto('http://app.rax.localhost:3040');
+  await page.locator('#address').fill('http://localhost:4040/next');await page.locator('#address').press('Enter');
+  await expect.poll(()=>page.frames().find(f=>f.url().endsWith('/next'))?.url(),{timeout:15000}).toBeTruthy();
+  const frame=page.frames().find(f=>f.url().endsWith('/next'))!;
+  await frame.waitForFunction(()=>!!(window as any).__rax?.map && document.readyState!=='loading');
+  const result=await frame.evaluate(()=>{
+    const native=(window as any).__nativeArtwork;
+    if(!native)return {supported:false};
+    const url='http://127.0.0.1:4040/pixel.png';let reads=0,titleReads=0;
+    const input={get src(){reads++;return url;},sizes:'128x128',type:'image/png'};
+    class Metadata extends MediaMetadata {}
+    const metadata=new Metadata({get title(){titleReads++;return 'Playing';},artwork:[input]});
+    const initial=metadata.artwork;
+    const constructor={src:initial[0].src,nativeSrc:native.get.call(metadata)[0].src,
+      mapped:(window as any).__rax.map(url),reads,titleReads,title:metadata.title,
+      instance:metadata instanceof MediaMetadata && metadata instanceof Metadata,
+      constructor:MediaMetadata.prototype.constructor===MediaMetadata,
+      stable:initial===metadata.artwork,frozen:Object.isFrozen(initial)&&Object.isFrozen(initial[0])};
+    navigator.mediaSession.metadata=metadata;
+    let iterations=0;
+    metadata.artwork={*[Symbol.iterator](){iterations++;yield {src:'/pixel.png',sizes:'32x32'};}} as any;
+    const setter={src:metadata.artwork[0].src,nativeSrc:native.get.call(metadata)[0].src,
+      mapped:(window as any).__rax.map('http://localhost:4040/pixel.png'),iterations};
+    const previous=metadata.artwork;
+    const failure=(fn:()=>unknown)=>{try{fn();return '';}catch(error){return (error as Error).name;}};
+    const invalid={proxy:failure(()=>metadata.artwork=[{src:Symbol('bad') as any}]),
+      native:failure(()=>new native.Constructor({artwork:[{src:Symbol('bad')}]})),
+      retained:metadata.artwork===previous,
+      getter:failure(()=>Object.getOwnPropertyDescriptor(MediaMetadata.prototype,'artwork')!.get!.call({})),
+      setter:failure(()=>Object.getOwnPropertyDescriptor(MediaMetadata.prototype,'artwork')!.set!.call({},[]))};
+    const data='data:image/png;base64,iVBORw0KGgo=';
+    metadata.artwork=[{src:data}];
+    const unchanged={logical:metadata.artwork[0].src,native:native.get.call(metadata)[0].src};
+    metadata.artwork=[];
+    return {supported:true,constructor,setter,invalid,unchanged,empty:metadata.artwork.length};
+  });
+  test.info().annotations.push({type:'Native MediaMetadata support',description:String(result.supported)});
+  if(!result.supported)return;
+  expect(result.constructor).toMatchObject({src:'http://127.0.0.1:4040/pixel.png',reads:1,titleReads:1,title:'Playing',instance:true,constructor:true,stable:true,frozen:true});
+  expect(result.constructor!.nativeSrc).toBe(result.constructor!.mapped);
+  expect(result.constructor!.nativeSrc).not.toBe(result.constructor!.src);
+  expect(result.setter).toMatchObject({src:'http://localhost:4040/pixel.png',iterations:1});
+  expect(result.setter!.nativeSrc).toBe(result.setter!.mapped);
+  expect(result.invalid).toEqual({proxy:'TypeError',native:'TypeError',retained:true,getter:'TypeError',setter:'TypeError'});
+  expect(result.unchanged!.native).toBe(result.unchanged!.logical);
+  expect(result.empty).toBe(0);
+});
+
 async function installMSE({mime,url}:{mime:string,url:string}){
   try{
     document.querySelector<HTMLVideoElement>('#native-media')?.pause();
