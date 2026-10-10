@@ -1,6 +1,7 @@
 import { runtime, currentURL, getter, report, config, map, native } from '../core/context';
 export function installStorage() {
   const prefix = `rax:${new URL(currentURL()).origin}:`;
+  const areas = new Map<Storage, Storage>();
   if (!config.worker) {
     for (const name of ['localStorage', 'sessionStorage'] as const) {
       try {
@@ -10,7 +11,7 @@ export function installStorage() {
           getItem: (k: string) => storage.getItem(prefix + String(k)),
           setItem: (k: string, v: string) => storage.setItem(prefix + String(k), String(v)),
           removeItem: (k: string) => storage.removeItem(prefix + String(k)),
-          clear: () => keys().forEach(k => storage.removeItem(k)),
+          clear: () => config.isolation ? storage.clear() : keys().forEach(k => storage.removeItem(k)),
           key: (i: number) => keys()[Number(i)]?.slice(prefix.length) ?? null,
         };
         const virtual = new Proxy(Object.create(Storage.prototype), {
@@ -22,12 +23,14 @@ export function installStorage() {
           getOwnPropertyDescriptor: (_t, k) => storage.getItem(prefix + String(k)) === null ? undefined : { enumerable: true, configurable: true, value: storage.getItem(prefix + String(k)), writable: true },
         });
         getter(window, name, () => virtual);
+        areas.set(storage,virtual);
       } catch { report('storage', `${name} is unavailable in this context`); }
     }
     window.addEventListener('storage', event => {
       if (event.key && !event.key.startsWith(prefix)) { event.stopImmediatePropagation(); return; }
       if (event.key) Object.defineProperty(event, 'key', { value: event.key.slice(prefix.length) });
       if (event.url) Object.defineProperty(event, 'url', { value: runtime.unmap(event.url) });
+      if(event.storageArea && areas.has(event.storageArea))Object.defineProperty(event,'storageArea',{value:areas.get(event.storageArea)});
     }, true);
   }
   if (globalThis.indexedDB) {

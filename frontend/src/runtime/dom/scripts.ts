@@ -21,10 +21,11 @@ export function installScripts() {
     globalThis[name] = ((handler: TimerHandler, ...args: any[]) => (schedule as any)(typeof handler === 'string' ? rewrite(handler) : handler, ...args)) as any;
   }
   if (typeof HTMLScriptElement === 'undefined') return;
+  const executable = (script: HTMLScriptElement) => !script.type || ['module', 'text/javascript', 'application/javascript'].includes(script.type.toLowerCase());
   const text = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'text');
-  if (text?.set) Object.defineProperty(HTMLScriptElement.prototype, 'text', { ...text, set(value: string) { text.set!.call(this, rewrite(value)); } });
+  if (text?.set) Object.defineProperty(HTMLScriptElement.prototype, 'text', { ...text, set(value: string) { text.set!.call(this, executable(this) ? rewrite(value) : value); } });
   const content = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent')!;
   Object.defineProperty(Node.prototype, 'textContent', { ...content, set(value: string) {
-    content.set!.call(this, this instanceof HTMLScriptElement && (!this.type || ['module', 'text/javascript', 'application/javascript'].includes(this.type)) ? rewrite(value) : value);
+    content.set!.call(this, this instanceof HTMLScriptElement && executable(this) ? rewrite(value) : value);
   } });
 }

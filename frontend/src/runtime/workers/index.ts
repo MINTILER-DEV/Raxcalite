@@ -47,4 +47,17 @@ export function installWorkers() {
       addEventListener('pagehide',()=>clearInterval(timer),{once:true});
     }));
   }
+  if(config.worker && 'clients' in globalThis) {
+    const worker = globalThis as unknown as ServiceWorkerGlobalScope;
+    const open=worker.clients.openWindow.bind(worker.clients);
+    worker.clients.openWindow=(url)=>open(map(url));
+    if(typeof Client !== 'undefined'){
+      const url=Object.getOwnPropertyDescriptor(Client.prototype,'url');
+      if(url?.get)getter(Client.prototype,'url',function(this:Client){return unmap(url.get!.call(this));});
+    }
+    if(typeof WindowClient !== 'undefined'){
+      const navigate=WindowClient.prototype.navigate;
+      WindowClient.prototype.navigate=function(url){return navigate.call(this,map(url));};
+    }
+  }
 }

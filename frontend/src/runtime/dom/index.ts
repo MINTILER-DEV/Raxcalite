@@ -1,4 +1,4 @@
-import { runtime, map, unmap, baseURL, report } from '../core/context';
+import { runtime, map, unmap, baseURL, report, config } from '../core/context';
 import { rewriteStyle, installCSS } from './css';
 import parseSrcset from 'parse-srcset';
 const urls = new Set(['href', 'src', 'action', 'formaction', 'poster', 'data', 'background', 'xlink:href']);
@@ -18,8 +18,23 @@ export function installDOM() {
     if (urls.has(name.toLowerCase()) && value && !value.startsWith('#')) { try { value = map(value); } catch { report('dom', 'Invalid dynamic resource URL'); } }
     else if (['srcset', 'imagesrcset'].includes(name.toLowerCase())) value = srcset(value);
     else if (name.toLowerCase() === 'style') value = rewriteStyle(value, 'declarationList');
+    else if (name.toLowerCase().startsWith('on')) value = runtime.rewriteScript(String(value));
     setAttribute.call(this, name, value);
   };
+  const setAttributeNS = Element.prototype.setAttributeNS;
+  Element.prototype.setAttributeNS = function(namespace, name, value) {
+    if (urls.has(name.toLowerCase()) || (namespace === 'http://www.w3.org/1999/xlink' && name.split(':').pop() === 'href')) {
+      originals(this)[name.toLowerCase()] = String(value);value = value && !value.startsWith('#') ? map(value) : value;
+    }
+    setAttributeNS.call(this, namespace, name, value);
+  };
+  const getAttributeNS = Element.prototype.getAttributeNS;
+  Element.prototype.getAttributeNS = function(namespace, name) {
+    const value = getAttributeNS.call(this, namespace, name), key = namespace === 'http://www.w3.org/1999/xlink' ? 'xlink:'+name : name;
+    return value !== null && Object.hasOwn(originals(this), key) ? originals(this)[key] : value;
+  };
+  const removeAttribute = Element.prototype.removeAttribute;
+  Element.prototype.removeAttribute = function(name) {delete originals(this)[name.toLowerCase()];removeAttribute.call(this,name);};
   Element.prototype.getAttribute = function(name) {
     const value = getAttribute.call(this, name);
     if (value !== null && Object.hasOwn(originals(this), name.toLowerCase())) return originals(this)[name.toLowerCase()];
@@ -51,6 +66,11 @@ export function installDOM() {
       for (const name of ['srcset', 'imagesrcset']) { const value = getAttribute.call(element, name); if (value) setAttribute.call(element, name, srcset(value)); }
       const style = getAttribute.call(element, 'style'); if (style) setAttribute.call(element, 'style', rewriteStyle(style, 'declarationList'));
       if (element instanceof HTMLStyleElement && element.textContent) { const rewritten = rewriteStyle(element.textContent); if (rewritten !== element.textContent) element.textContent = rewritten; }
+      if (element instanceof HTMLScriptElement) {
+        if (element.type === 'module' && config.isolation) setAttribute.call(element,'crossorigin','use-credentials');
+        if (!element.src && element.textContent && (!element.type || ['module','text/javascript','application/javascript'].includes(element.type))) element.textContent=runtime.rewriteScript(element.textContent);
+      }
+      for (const attribute of element.attributes) if (attribute.name.startsWith('on')) setAttribute.call(element,attribute.name,runtime.rewriteScript(attribute.value));
       if (Object.keys(originals(element)).length) setAttribute.call(element, 'data-rax-authored', JSON.stringify(originals(element)));
     }
   };
@@ -58,17 +78,25 @@ export function installDOM() {
     const descriptor = Object.getOwnPropertyDescriptor(Constructor.prototype, 'srcset')!;
     Object.defineProperty(Constructor.prototype, 'srcset', { ...descriptor, set(value) { descriptor.set!.call(this, srcset(String(value))); } });
   }
+  const inner = Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML')!;
+  const append = Node.prototype.appendChild;
+  const markup = (text: string, context: Element) => {
+    const range=context.ownerDocument.createRange();range.selectNodeContents(context);
+    const fragment=range.createContextualFragment(String(text));fixTree(fragment);
+    const template=context.ownerDocument.createElement('template');append.call(template.content,fragment);
+    return inner.get!.call(template);
+  };
   for (const key of ['innerHTML', 'outerHTML'] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, key)!;
     Object.defineProperty(Element.prototype, key, { ...descriptor, set(value: string) {
-      const template = document.createElement('template'); descriptor.set!.call(template, value);
-      for (const child of template.content.children) fixTree(child);
-      descriptor.set!.call(this, descriptor.get!.call(template));
+      const context=key==='innerHTML'?this:this.parentElement;
+      descriptor.set!.call(this,context ? markup(value,context) : value);
     } });
   }
   const insert = Element.prototype.insertAdjacentHTML;
   Element.prototype.insertAdjacentHTML = function(position, text) {
-    const template = document.createElement('template'); template.innerHTML = text; insert.call(this, position, template.innerHTML);
+    const context=['beforebegin','afterend'].includes(position.toLowerCase())?this.parentElement:this;
+    insert.call(this,position,context?markup(text,context):text);
   };
   // Intercept insertion before the browser starts resource loading. The observer
   // below remains a fallback for native parsing and APIs without patchable hooks.
@@ -100,9 +128,16 @@ export function installDOM() {
     if (descriptor?.set && descriptor.get) Object.defineProperty(SVGAnimatedString.prototype, 'baseVal', { ...descriptor,
       get() { const value = descriptor.get!.call(this); return references.has(this) ? unmap(value) : value; }, set(value) { descriptor.set!.call(this, references.has(this) ? map(value) : value); } });
   }
-  new MutationObserver(records => {
+  const observer = new MutationObserver(records => {
     for (const record of records) for (const node of record.addedNodes) fixTree(node);
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  if (typeof ShadowRoot !== 'undefined') {
+    const descriptor = Object.getOwnPropertyDescriptor(ShadowRoot.prototype,'innerHTML');
+    if(descriptor?.set)Object.defineProperty(ShadowRoot.prototype,'innerHTML',{...descriptor,set(value){descriptor.set!.call(this,markup(value,this.host));}});
+    const attach = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function(options) {const shadow=attach.call(this,options);observer.observe(shadow,{childList:true,subtree:true});return shadow;};
+  }
   // Dynamic style and srcset strings need parsing; server rewrites authored CSS and srcset.
   runtime.base = baseURL;
 }
