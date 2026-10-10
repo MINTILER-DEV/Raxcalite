@@ -34,10 +34,17 @@ export function startFixtures(port = 4040) {
     else if (url.pathname === '/module-worker.js') { res.setHeader('content-type','text/javascript'); res.end('import {value} from "/module.js";postMessage(value);'); }
     else if (url.pathname === '/pixel.svg') { res.setHeader('content-type','image/svg+xml');res.end('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>'); }
     else if (url.pathname === '/api/echo' || url.pathname === '/protected/echo') {
-      res.setHeader('content-type','application/json');
+      res.setHeader('content-type','application/json');res.setHeader('x-hidden','secret');res.setHeader('x-visible','public');res.setHeader('access-control-expose-headers','x-visible');
       if(url.searchParams.get('cors')==='yes') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-methods','GET, POST, PUT, PATCH, DELETE');res.setHeader('access-control-allow-headers',req.headers['access-control-request-headers']||'content-type'); }
       res.end(JSON.stringify({method:req.method,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||'',query:url.search}));
     }
+    else if (url.pathname === '/generated') { res.setHeader('content-type','text/html');res.end(`<title>Generated scripts</title><script>
+      const __rax='author';const {location:aliased}=window;
+      window.generated={collision:__rax,alias:aliased.href,evalURL:eval('location.href'),functionURL:new Function('return location.href')()};
+      function lexical(location){return eval('location')};generated.lexical=lexical('local');
+      const script=document.createElement('script');script.text='window.generated.inlineURL=location.href';document.head.append(script);
+      setTimeout('window.generated.timerURL=location.href',0);
+      </script>`); }
     else if (url.pathname === '/legacy') { res.setHeader('content-type','text/html; charset=windows-1252');res.end(Buffer.from('<title>caf\xe9</title><h1>caf\xe9</h1>', 'latin1')); }
     else if (url.pathname === '/upload') { res.setHeader('content-type','application/json');res.end(JSON.stringify({bytes:Buffer.concat(chunks).length,type:req.headers['content-type'],last:Buffer.concat(chunks).subarray(-16).toString()})); }
     else if (url.pathname === '/slow') { setTimeout(()=>{res.setHeader('content-type','text/plain');res.end('slow')},500); }

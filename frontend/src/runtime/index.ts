@@ -7,6 +7,7 @@ import { installNavigation } from './navigation';
 import { installCookies } from './cookies';
 import { installDOM } from './dom';
 import { installFrames } from './frames';
+import { installScripts } from './dom/scripts';
 
 function initialize(value: RuntimeConfig) {
   if (config) return;
@@ -18,7 +19,7 @@ function initialize(value: RuntimeConfig) {
   if (!value.worker) installLocation();
   else root.__rax.location = new URL(value.url);
   installNetwork(); installStorage(); installWorkers();
-  if (!value.worker) { installCookies(); installDOM(); installNavigation(); installFrames(); }
+  if (!value.worker) { installCookies(); installScripts(); installDOM(); installNavigation(); installFrames(); }
   for (const warning of value.warnings || []) report('rewriting', warning);
 }
 root.__rax = { initialize };

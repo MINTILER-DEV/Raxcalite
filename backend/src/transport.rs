@@ -64,6 +64,11 @@ pub async fn proxy(State(state): State<AppState>, request: Request) -> Response 
                 response
                     .headers_mut()
                     .insert("x-rax-cors-error", HeaderValue::from_static("true"));
+                // Terminate the HTTP body so native XHR reports a network error
+                // (status 0, error/loadend), rather than a readable proxy 403.
+                *response.body_mut() = Body::from_stream(futures_util::stream::once(async {
+                    Err::<bytes::Bytes, _>(std::io::Error::other("Virtual CORS rejected"))
+                }));
             }
             response
         }
@@ -438,6 +443,9 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         header::REFERRER_POLICY,
         HeaderValue::from_static("same-origin"),
     );
+    if let Some(value) = upstream_headers.get(header::ACCESS_CONTROL_EXPOSE_HEADERS) {
+        response_headers.insert("x-rax-exposed-headers", value.clone());
+    }
     if fresh {
         response_headers.append(
             header::SET_COOKIE,

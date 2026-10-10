@@ -1,0 +1,30 @@
+import { rewriteJS, rewriteFunction } from '../../../../tools/rewriting/javascript.mjs';
+import { currentURL, report, root } from '../core/context';
+export function installScripts() {
+  const rewrite = (source: unknown, shadowedNames: string[] = []) => {
+    if (typeof source !== 'string') return source;
+    try { return rewriteJS(source, currentURL(), { shadowedNames, inlineHandler: true }).code; }
+    catch { report('javascript', 'Generated script could not be transformed'); throw new SyntaxError('Generated script transformation failed'); }
+  };
+  root.__rax.rewriteScript = rewrite;
+  root.__rax.locationObject = (object: any) => new Proxy(object, {
+    get(target, key) { return key === 'location' ? root.__rax.location : Reflect.get(target, key, target); },
+    set(target, key, value) { if (key === 'location') { root.__rax.location = value; return true; } return Reflect.set(target, key, value, target); }
+  });
+  const Constructor = globalThis.Function;
+  globalThis.Function = new Proxy(Constructor, {
+    apply(target, receiver, args) { return Reflect.apply(target, receiver, rewriteFunction(args, currentURL())); },
+    construct(target, args, newTarget) { return Reflect.construct(target, rewriteFunction(args, currentURL()), newTarget); }
+  });
+  for (const name of ['setTimeout', 'setInterval'] as const) {
+    const schedule = globalThis[name];
+    globalThis[name] = ((handler: TimerHandler, ...args: any[]) => (schedule as any)(typeof handler === 'string' ? rewrite(handler) : handler, ...args)) as any;
+  }
+  if (typeof HTMLScriptElement === 'undefined') return;
+  const text = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'text');
+  if (text?.set) Object.defineProperty(HTMLScriptElement.prototype, 'text', { ...text, set(value: string) { text.set!.call(this, rewrite(value)); } });
+  const content = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent')!;
+  Object.defineProperty(Node.prototype, 'textContent', { ...content, set(value: string) {
+    content.set!.call(this, this instanceof HTMLScriptElement && (!this.type || ['module', 'text/javascript', 'application/javascript'].includes(this.type)) ? rewrite(value) : value);
+  } });
+}

@@ -2,6 +2,20 @@ import { test, expect } from '@playwright/test';
 import { encodeURL } from '../../shared/url.mjs';
 const contentOrigin = 'http://localhost:3031';
 const proxy = (url: string) => encodeURL(url,url,contentOrigin);
+test('generated scripts, aliases and lexical eval observe the virtual environment', async ({page}) => {
+  await page.goto(proxy('http://localhost:4040/generated'));
+  await expect.poll(() => page.evaluate(() => (window as any).generated)).toEqual({ collision: 'author', alias: 'http://localhost:4040/generated', evalURL: 'http://localhost:4040/generated', functionURL: 'http://localhost:4040/generated', inlineURL: 'http://localhost:4040/generated', timerURL: 'http://localhost:4040/generated', lexical: 'local' });
+});
+test('CORS responses expose only permitted headers, no-cors is opaque and XHR fails natively', async ({page}) => {
+  await page.goto(proxy('http://localhost:4040/next'));
+  const result = await page.evaluate(async () => {
+    const response = await fetch('http://127.0.0.1:4040/api/echo?cors=yes');
+    const opaque = await fetch('http://127.0.0.1:4040/api/echo', {mode:'no-cors'});
+    const xhr = await new Promise(resolve => { const xhr=new XMLHttpRequest();const events:string[]=[];xhr.open('GET','http://127.0.0.1:4040/api/echo');xhr.onerror=()=>events.push('error');xhr.onload=()=>events.push('load');xhr.onloadend=()=>resolve({events,status:xhr.status,response:xhr.responseText});xhr.send(); });
+    return { type:response.type, hidden:response.headers.get('x-hidden'), visible:response.headers.get('x-visible'), clone:response.clone().type, opaque:{type:opaque.type,status:opaque.status,url:opaque.url,body:await opaque.text(),headers:[...opaque.headers]}, xhr };
+  });
+  expect(result).toEqual({type:'cors',hidden:null,visible:'public',clone:'cors',opaque:{type:'opaque',status:0,url:'',body:'',headers:[]},xhr:{events:['error'],status:0,response:''}});
+});
 test('charset decoding, multipart and large streamed backend uploads, readiness and Host validation', async ({ page, request }) => {
   await page.goto(proxy('http://localhost:4040/legacy')); await expect(page.locator('h1')).toHaveText('café');
   const uploaded = await page.evaluate(async () => {

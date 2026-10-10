@@ -1,4 +1,5 @@
 import { native, map, currentURL, unmap, getter, report } from '../core/context';
+import { responseView } from './responses';
 export function installNetwork() {
   globalThis.Request = new Proxy(native.Request, { construct(Target, args) {
     return Reflect.construct(Target, [args[0] instanceof native.Request ? args[0] : map(args[0]), ...args.slice(1)]);
@@ -6,10 +7,6 @@ export function installNetwork() {
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const original = new native.Request(input instanceof native.Request ? input : new URL(String(input), currentURL()), init);
     if (['blob:', 'data:'].includes(new URL(original.url).protocol)) return native.fetch(original);
-    if (original.mode === 'no-cors' && new URL(original.url).origin !== new URL(currentURL()).origin) {
-      report('network', 'Cross-origin no-cors fetch is unsupported; opaque response virtualization is incomplete');
-      throw new TypeError('Cross-origin no-cors fetch is unsupported');
-    }
     const headers = new Headers(original.headers);
     headers.set('x-rax-origin', new URL(currentURL()).origin);
     headers.set('x-rax-credentials', original.credentials);
@@ -35,7 +32,9 @@ export function installNetwork() {
     try {
       const response = await native.fetch(mapped);
       if (response.headers.get('x-rax-cors-error')) throw new TypeError('Upstream CORS policy rejected the virtual origin');
-      return response;
+      if (response.type === 'opaqueredirect') return response;
+      const cross = new URL(response.url).origin !== new URL(currentURL()).origin;
+      return responseView(response, cross ? original.mode === 'no-cors' ? 'opaque' : 'cors' : 'basic', original.credentials === 'include');
     }
     catch (error) { report('network', 'Fetch failed'); throw error; }
   };

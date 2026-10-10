@@ -2,6 +2,7 @@ import { root, config, setConfig, map, unmap, report, currentURL, type RuntimeCo
 import { installNetwork } from './network';
 import { installStorage } from './storage';
 import { installWorkers } from './workers';
+import { installScripts } from './dom/scripts';
 function initialize(value: RuntimeConfig) {
   if (config) return;
   setConfig({ ...value, worker: true });
@@ -13,7 +14,7 @@ function initialize(value: RuntimeConfig) {
   root.__rax = { initialize, map, unmap, report, currentURL, location,
     mapImport: (input: string, base: string) => /^(?:[./]|[a-z][a-z\d+.-]*:)/i.test(input) ? map(input, base) : input,
     postMessage: (target: any, ...args: any[]) => target.postMessage(...args) };
-  installNetwork(); installStorage(); installWorkers();
+  installNetwork(); installStorage(); installWorkers(); installScripts();
 }
 root.__rax = { initialize };
 if (root.__RAX_CONFIG__) initialize(root.__RAX_CONFIG__);

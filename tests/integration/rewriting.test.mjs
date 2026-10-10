@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { rewriteHTML } from '../../tools/rewriting/html.mjs';
 import { rewriteJS } from '../../tools/rewriting/javascript.mjs';
 import { rewriteCSS } from '../../tools/rewriting/css.mjs';
@@ -35,10 +36,23 @@ test('AST respects shadowing and transforms assignments, computed globals, impor
   const source = 'const a=location.href;window["location"]="/a";function f(location){return location.href}import x from "./a.js";const b=import("./b.js");const u=import.meta.url;';
   const code = rewriteJS(source, 'https://example.com/dir/main.js').code;
   assert.match(code, /__rax.location.href/); assert.match(code, /return location.href/);
-  assert.match(code, /__rax.location =/); assert.match(code, /\/dir\/a.js/); assert.match(code, /import\(__rax.mapImport/);
+  assert.match(code, /__rax.location =/); assert.match(code, /\/dir\/a.js/); assert.match(code, /import\(globalThis.__rax.mapImport/);
   assert.match(code, /https:\/\/example.com\/dir\/main.js/);
 });
 test('modern scripts and source maps preserve a debuggable AST', () => {
   const result = rewriteJS('class A{async *f(){yield location.href}};const f=async()=>await import("./x.js")', 'https://example.com/a.js', { sourceMaps: true });
   assert.ok(result.map?.sources.includes('https://example.com/a.js')); assert.match(result.code, /async \*f/);
+});
+test('AST preserves helper collisions, destructured location, optional calls, argument order and direct eval scope', () => {
+  const calls = []; const virtual = { href: 'https://example.com/virtual' };
+  const context = vm.createContext({ window: {location:{href:'physical'}}, __rax: { location: virtual,
+    locationObject: object => new Proxy(object, {get: (target, key) => key === 'location' ? virtual : target[key]}),
+    postMessage: (target, ...args) => { calls.push(args); },
+    rewriteScript: (source, shadowedNames) => rewriteJS(source, 'https://example.com', {shadowedNames}).code } });
+  const source = `const __rax='author';const {location:alias}=window;var result=[alias.href,__rax];
+    function f(globalThis,location){return eval('location')};result.push(f('local','lexical'));
+    let n=0;null?.postMessage(n++);window['postMessage'](location.href,'*');window?.postMessage(n++,'*');result.push(n);`;
+  vm.runInContext(rewriteJS(source, 'https://example.com').code, context);
+  assert.deepEqual(Array.from(context.result), ['https://example.com/virtual', 'author', 'lexical', 1]);
+  assert.equal(calls[0][0], virtual.href); assert.equal(calls.length, 2);
 });
