@@ -1,5 +1,9 @@
 import {test, expect} from '@playwright/test';
 const app = 'http://app.rax.localhost:3040';
+test('direct content documents cannot relax native origin isolation with document.domain',async({page})=>{
+  await page.goto('http://rax.localhost:3041/p/aHR0cDovL2xvY2FsaG9zdDo0MDQw/next');await expect(page.locator('h1')).toHaveText('Next page');
+  expect(await page.evaluate(()=>{try{document.domain='rax.localhost';return document.domain}catch(e){return(e as DOMException).name}})).toBe('SecurityError');
+});
 test('module service workers are explicitly restricted when native loading cannot authenticate',async({page,browser})=>{
   const direct=await browser.newContext();const reference=await direct.newPage();await reference.goto('http://localhost:4040/next');
   const native=await reference.evaluate(async()=>{try{await navigator.serviceWorker.register('/module-site-worker.js',{type:'module',scope:'/'});await navigator.serviceWorker.ready;return {supported:true}}catch(e){return {supported:false,error:(e as DOMException).name}}});await direct.close();
@@ -16,6 +20,7 @@ test('classic upstream service worker owns only its isolated virtual scope',asyn
   expect(registration).toEqual({scope:'http://localhost:4040/',script:'http://localhost:4040/site-worker.js'});
   await expect.poll(()=>frame.evaluate(()=>!!navigator.serviceWorker.controller)).toBe(true);
   expect(await frame.evaluate(async()=>await(await fetch('/sw-resource')).text())).toBe('worker-response');
+  expect(await frame.evaluate(()=>new Promise(resolve=>{const channel=new MessageChannel();channel.port1.onmessage=e=>{resolve(e.data);channel.port1.close()};navigator.serviceWorker.controller!.postMessage('clients',[channel.port2]);}))).toContain('http://localhost:4040/next');
   expect(await frame.evaluate(async()=>{try{await navigator.serviceWorker.register('http://127.0.0.1:4040/site-worker.js');return ''}catch(e){return(e as DOMException).name}})).toBe('SecurityError');
 });
 test('native origins isolate hostile frames, storage, assertions and independent users', async ({page,browser}) => {

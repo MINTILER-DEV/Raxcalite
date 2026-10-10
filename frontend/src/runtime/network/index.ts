@@ -1,10 +1,11 @@
-import { native, map, currentURL, unmap, getter, report, config } from '../core/context';
+import { native, map, currentURL, unmap, getter, report, trace, config } from '../core/context';
 import { responseView, filteredHeaders } from './responses';
 export function installNetwork() {
   globalThis.Request = new Proxy(native.Request, { construct(Target, args) {
     return Reflect.construct(Target, [args[0] instanceof native.Request ? args[0] : map(args[0]), ...args.slice(1)]);
   } });
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    trace('network','Fetch routed through the virtual request contract');
     const original = new native.Request(input instanceof native.Request ? input : new URL(String(input), currentURL()), init);
     if (['blob:', 'data:'].includes(new URL(original.url).protocol)) return native.fetch(original);
     const headers = new Headers(original.headers);
@@ -12,6 +13,7 @@ export function installNetwork() {
     headers.set('x-rax-credentials', original.credentials);
     headers.set('x-rax-mode', original.mode);
     if(headers.has('authorization')) { headers.set('x-rax-authorization',headers.get('authorization')!);headers.set('x-rax-auth-origin',new URL(original.url).origin);headers.delete('authorization'); }
+    if(headers.has('priority')) {headers.set('x-rax-priority',headers.get('priority')!);headers.delete('priority');}
     // Reconstructing a Request from its .body stream forces HTTP/2 streaming uploads in Chromium.
     // Buffer bounded uploads so normal form/text bodies work through an HTTP/1 local proxy too.
     let body: Uint8Array<ArrayBuffer> | undefined;
@@ -50,9 +52,10 @@ export function installNetwork() {
   if (native.XMLHttpRequest) {
     const targets = new WeakMap<XMLHttpRequest,string>();
     const set = native.XMLHttpRequest.prototype.setRequestHeader;
-    native.XMLHttpRequest.prototype.setRequestHeader = function(name,value) { if(name.toLowerCase()==='authorization') {set.call(this,'x-rax-auth-origin',new URL(targets.get(this)!).origin);set.call(this,'x-rax-authorization',value);} else set.call(this,name,value); };
+    native.XMLHttpRequest.prototype.setRequestHeader = function(name,value) { if(name.toLowerCase()==='authorization') {set.call(this,'x-rax-auth-origin',new URL(targets.get(this)!).origin);set.call(this,'x-rax-authorization',value);} else set.call(this,name.toLowerCase()==='priority'?'x-rax-priority':name,value); };
     const open = native.XMLHttpRequest.prototype.open as (this: XMLHttpRequest, method: string, url: string, async: boolean, username?: string | null, password?: string | null) => void;
     native.XMLHttpRequest.prototype.open = function(method: string, url: string | URL, async: boolean = true, username?: string | null, password?: string | null) {
+      trace('network','XMLHttpRequest URL and origin metadata mapped');
       targets.set(this,new URL(String(url),currentURL()).href);
       open.call(this, method, map(url), async, username, password);
       this.setRequestHeader('x-rax-origin', new URL(currentURL()).origin);

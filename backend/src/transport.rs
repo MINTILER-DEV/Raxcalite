@@ -279,10 +279,13 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         {
             continue;
         }
-        if name_str == "authorization" {
+        if matches!(name_str, "authorization" | "priority") {
             continue;
         }
         outgoing.insert(name.clone(), value.clone());
+    }
+    if let Some(value) = parts.headers.get("x-rax-priority") {
+        outgoing.insert("priority", value.clone());
     }
     // Native gateway HTTP authentication is never forwarded. Explicit website
     // Authorization uses a separate transport header and stays on its initial target origin.
@@ -400,6 +403,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                     credentials,
                 )
             {
+                tracing::warn!(method=%parts.method, header_count=unsafe_headers.len(), "Virtual CORS preflight rejected");
                 return Err((
                     StatusCode::FORBIDDEN,
                     "Virtual CORS preflight rejected".into(),
@@ -658,10 +662,13 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             } else {
                 "'self'".into()
             };
-            response_headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&format!("default-src 'self' {resource_origins} data: blob:; script-src 'self' {resource_origins} 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' {resource_origins} 'unsafe-inline'; connect-src 'self' {resource_origins} ws: wss:; frame-ancestors {} {} {resource_origins}; object-src 'none'; base-uri 'self' {resource_origins}", state.config.app_origin, content_origin)).unwrap());
+            response_headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_str(&format!("sandbox allow-scripts allow-forms allow-same-origin allow-popups allow-downloads allow-modals; default-src 'self' {resource_origins} data: blob:; script-src 'self' {resource_origins} 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' {resource_origins} 'unsafe-inline'; connect-src 'self' {resource_origins} ws: wss:; frame-ancestors {} {} {resource_origins}; object-src 'none'; base-uri 'self' {resource_origins}", state.config.app_origin, content_origin)).unwrap());
+            response_headers.insert("origin-agent-cluster", HeaderValue::from_static("?1"));
             response_headers.insert(
                 "permissions-policy",
-                HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
+                HeaderValue::from_static(
+                    "camera=(), microphone=(), geolocation=(), payment=(), document-domain=()",
+                ),
             );
         }
         response_body = Body::from(result.code);

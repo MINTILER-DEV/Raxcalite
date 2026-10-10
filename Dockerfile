@@ -5,8 +5,6 @@ RUN npm ci
 COPY frontend frontend
 COPY shared shared
 COPY tools tools
-ARG RAX_PROXY_ORIGIN
-ENV RAX_PROXY_ORIGIN=$RAX_PROXY_ORIGIN
 RUN node tools/build.mjs
 
 FROM rust:1.93-bookworm AS backend

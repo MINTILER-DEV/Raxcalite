@@ -32,6 +32,7 @@ export function report(subsystem: string, message: string) {
   if (config.debug) console.debug('[Raxcalite]', subsystem, message);
   if (!config.worker && parent !== window) native.postMessage!.call(parent, { type: 'rax:diagnostic', entry }, '*');
 }
+export function trace(subsystem: string, operation: string) {if(config.debug)report(subsystem,operation);}
 export function getter(object: object, key: string, get: () => unknown, set?: (value: any) => void) {
   try { const old = Object.getOwnPropertyDescriptor(object, key); Object.defineProperty(object, key, { configurable: old?.configurable ?? true, enumerable: old?.enumerable ?? true, get, set }); }
   catch { report('runtime', `Cannot virtualize ${key}`); }

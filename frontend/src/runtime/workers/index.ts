@@ -1,9 +1,10 @@
-import { map, report, config, currentURL, native, getter, unmap } from '../core/context';
+import { map, report, trace, config, currentURL, native, getter, unmap } from '../core/context';
 export function installWorkers() {
   for (const name of ['Worker', 'SharedWorker'] as const) {
     const Constructor = globalThis[name];
     if (!Constructor) continue;
     globalThis[name] = new Proxy(Constructor, { construct(Target, args) {
+      trace('workers',`${name} entry routed through source rewriting`);
       const source = map(args[0]);
       if (source.startsWith('blob:') || source.startsWith('data:')) { report('workers', 'Blob/data worker code cannot be safely transformed'); throw new DOMException('Use a URL-backed worker', 'NotSupportedError'); }
       const url = new URL(source); url.search += `${url.search ? '&' : '?'}__rax_worker=${args[1]?.type === 'module' ? 'module' : 'classic'}`;

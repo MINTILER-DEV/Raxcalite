@@ -1,5 +1,6 @@
-import { runtime, currentURL, getter, report, config, map, native } from '../core/context';
+import { runtime, currentURL, getter, report, trace, config, map, native } from '../core/context';
 export function installStorage() {
+  trace('storage','Native storage isolated and virtual names configured');
   const prefix = `rax:${new URL(currentURL()).origin}:`;
   const areas = new Map<Storage, Storage>();
   if (!config.worker) {
@@ -14,10 +15,12 @@ export function installStorage() {
           clear: () => config.isolation ? storage.clear() : keys().forEach(k => storage.removeItem(k)),
           key: (i: number) => keys()[Number(i)]?.slice(prefix.length) ?? null,
         };
+        const checked=(action:()=>any)=>{try{return action();}catch(error){report('storage','Native storage rejected an operation (quota or access restriction)');throw error;}};
+        for(const key of Object.keys(methods)){const action=methods[key] as (...args:any[])=>unknown;methods[key]=(...args:any[])=>checked(()=>action(...args));}
         const virtual = new Proxy(Object.create(Storage.prototype), {
           get: (_t, k) => k === 'length' ? keys().length : k === Symbol.toStringTag ? 'Storage' : Object.hasOwn(methods, k) ? methods[k as string] : typeof k === 'string' ? storage.getItem(prefix + k) ?? undefined : undefined,
-          set: (_t, k, v) => { storage.setItem(prefix + String(k), String(v)); return true; },
-          deleteProperty: (_t, k) => { storage.removeItem(prefix + String(k)); return true; },
+          set: (_t, k, v) => checked(()=>{ storage.setItem(prefix + String(k), String(v)); return true; }),
+          deleteProperty: (_t, k) => checked(()=>{ storage.removeItem(prefix + String(k)); return true; }),
           ownKeys: () => keys().map(k => k.slice(prefix.length)),
           has: (_t, k) => Object.hasOwn(methods, k) || storage.getItem(prefix + String(k)) !== null,
           getOwnPropertyDescriptor: (_t, k) => storage.getItem(prefix + String(k)) === null ? undefined : { enumerable: true, configurable: true, value: storage.getItem(prefix + String(k)), writable: true },

@@ -22,14 +22,14 @@ test('explicit Authorization survives CORS but is stripped across redirect origi
 });
 test('SharedWorker, BroadcastChannel, storage events and transferable MessageChannel buffers',async({page,context})=>{
   await page.goto(proxy('http://localhost:4040/next'));const other=await context.newPage();await other.goto(proxy('http://localhost:4040/next'));
-  await other.evaluate(()=>{addEventListener('storage',e=>(window as any).storageResult={key:e.key,newValue:e.newValue,url:e.url});const channel=new BroadcastChannel('fixture');channel.onmessage=e=>(window as any).broadcastResult={data:e.data,name:channel.name};(window as any).channel=channel;});
+  await other.evaluate(()=>{addEventListener('storage',e=>(window as any).storageResult={key:e.key,newValue:e.newValue,url:e.url,area:e.storageArea===localStorage});const channel=new BroadcastChannel('fixture');channel.onmessage=e=>(window as any).broadcastResult={data:e.data,name:channel.name};(window as any).channel=channel;});
   const result=await page.evaluate(async()=>{
     const worker=new SharedWorker('/shared-worker.js','fixture');worker.port.start();const shared=await new Promise(resolve=>{worker.port.onmessage=e=>{resolve(e.data);worker.port.close()};worker.port.postMessage('start');});
     const transfer=await new Promise(resolve=>{const channel=new MessageChannel();const buffer=new Uint8Array([1,2,255]).buffer;channel.port1.onmessage=e=>{resolve({bytes:[...new Uint8Array(e.data)],detached:buffer.byteLength});channel.port1.close();channel.port2.close()};channel.port2.postMessage(buffer,[buffer])});
     localStorage.setItem('event-key','event-value');const channel=new BroadcastChannel('fixture');channel.postMessage('broadcast');channel.close();return {shared,transfer};
   });
   expect(result).toEqual({shared:{url:'http://localhost:4040/shared-worker.js',name:'shared'},transfer:{bytes:[1,2,255],detached:0}});
-  await expect.poll(()=>other.evaluate(()=>(window as any).storageResult)).toMatchObject({key:'event-key',newValue:'event-value',url:'http://localhost:4040/next'});
+  await expect.poll(()=>other.evaluate(()=>(window as any).storageResult)).toMatchObject({key:'event-key',newValue:'event-value',url:'http://localhost:4040/next',area:true});
   await expect.poll(()=>other.evaluate(()=>(window as any).broadcastResult)).toEqual({data:'broadcast',name:'fixture'});
 });
 test('binary WebSockets, close codes, SSE reconnect, downloads, media and response limits',async({page,request})=>{

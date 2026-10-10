@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 if (existsSync('.env')) process.loadEnvFile('.env');
 const env = { ...process.env, RAX_TRANSFORM_TOKEN: process.env.RAX_TRANSFORM_TOKEN || randomBytes(32).toString('hex') };
+if(process.argv.includes('--shared'))delete env.RAX_ISOLATION_DOMAIN;
 if (!process.argv.includes('--shared') && !env.RAX_PROXY_ORIGIN) {
   env.RAX_ISOLATION_DOMAIN ||= 'rax.localhost';
   env.RAX_APP_ORIGIN ||= `http://app.${env.RAX_ISOLATION_DOMAIN}:${env.RAX_APP_PORT || 3030}`;
