@@ -2,6 +2,9 @@ import { encodeURL, decodeURL, configureMapping } from '../../../../shared/url.m
 export interface RuntimeConfig { url: string; base: string; worker?: boolean; debug?: boolean; warnings?: string[]; appOrigin?: string; isolation?: { domain: string; user: string; proxyOrigin: string } }
 export interface Diagnostic { subsystem: string; message: string; time: number }
 export const root = globalThis as typeof globalThis & { __RAX_CONFIG__?: RuntimeConfig; __rax: any };
+export const runtime: any = {};
+Object.defineProperty(root,'__RAX_RUNTIME_v1__',{value:runtime});
+root.__rax=runtime;
 declare global { var __rax: any; }
 export const native = {
   fetch: globalThis.fetch.bind(globalThis),

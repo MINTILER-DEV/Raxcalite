@@ -62,6 +62,18 @@ pub fn validate_url(url: &Url, fixtures: &[String]) -> Result<(), String> {
 pub struct SafeResolver {
     pub fixtures: Arc<Vec<String>>,
 }
+fn validated_addresses(
+    addresses: Vec<SocketAddr>,
+    fixture: bool,
+) -> Result<Vec<SocketAddr>, std::io::Error> {
+    if addresses.is_empty() || (!fixture && addresses.iter().any(|a| !public_ip(a.ip()))) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Unsafe DNS destination",
+        ));
+    }
+    Ok(addresses)
+}
 impl Resolve for SafeResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().to_owned();
@@ -69,15 +81,7 @@ impl Resolve for SafeResolver {
         Box::pin(async move {
             let addresses: Vec<SocketAddr> =
                 tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
-            if addresses.is_empty()
-                || (!fixtures.contains(&host) && addresses.iter().any(|a| !public_ip(a.ip())))
-            {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "Unsafe DNS destination",
-                )
-                .into());
-            }
+            let addresses = validated_addresses(addresses, fixtures.contains(&host))?;
             Ok(Box::new(addresses.into_iter()) as Addrs)
         })
     }
@@ -89,16 +93,29 @@ pub async fn resolve_socket(url: &Url, fixtures: &[String]) -> Result<Vec<Socket
         .await
         .map_err(|_| "DNS resolution failed")?
         .collect();
-    if addresses.is_empty()
-        || (!fixtures.iter().any(|v| v == host) && addresses.iter().any(|a| !public_ip(a.ip())))
-    {
-        return Err("Unsafe DNS destination".into());
-    }
-    Ok(addresses)
+    validated_addresses(addresses, fixtures.iter().any(|v| v == host))
+        .map_err(|_| "Unsafe DNS destination".into())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mixed_answers_and_rebound_lookups_fail_closed() {
+        let public = "1.1.1.1:443".parse().unwrap();
+        let private = "127.0.0.1:443".parse().unwrap();
+        assert!(validated_addresses(vec![public], false).is_ok());
+        assert!(validated_addresses(vec![public, private], false).is_err());
+        assert!(validated_addresses(vec![private], false).is_err());
+        assert!(validated_addresses(vec![], false).is_err());
+        assert!(validated_addresses(vec![private], true).is_ok());
+        for url in [
+            "http://example.com:8080/",
+            "http://user:password@example.com/",
+            "file:///etc/passwd",
+        ] {
+            assert!(validate_url(&Url::parse(url).unwrap(), &[]).is_err());
+        }
+    }
     #[test]
     fn blocks_private_and_reserved() {
         for ip in [

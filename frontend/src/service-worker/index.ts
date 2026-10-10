@@ -13,7 +13,12 @@ sw.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== sw.location.origin || event.request.method !== 'GET') return;
   // Proxy resources never enter a shared cache. Forward once without recursive fetch events.
-  if (url.pathname.startsWith('/p/')) { event.respondWith(fetch(event.request)); return; }
+  if (url.pathname.startsWith('/p/')) {
+    // Let native EventSource carry its internal Last-Event-ID on reconnect.
+    // Reissuing the request through fetch can discard that browser-managed header.
+    if (event.request.headers.get('accept')?.includes('text/event-stream')) return;
+    event.respondWith(fetch(event.request)); return;
+  }
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/')) return;
   if (!['/', '/index.html', '/icon.svg','/config.js','/runtime.js','/worker-runtime.js'].includes(url.pathname) && !url.pathname.startsWith('/assets/')) return;
   event.respondWith(fetch(event.request).then(async response => {

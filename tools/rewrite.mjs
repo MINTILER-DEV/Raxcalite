@@ -16,8 +16,8 @@ export function rewrite({ kind, source, url, debug, sourceMaps, worker, encoding
     if (worker === 'module') {
       const entry = new URL(url); entry.search += `${entry.search ? '&' : '?'}__rax_worker=body`;
       // Initialize before evaluating static dependencies; those modules may immediately use browser APIs.
-      code = `import '/worker-runtime.js';globalThis.__rax.initialize(${config});await import(${JSON.stringify(encodeURL(entry.href, url))});`;
-    } else code = `globalThis.__RAX_CONFIG__=${config};importScripts('/worker-runtime.js');\n${code}`;
+      code = `import '/worker-runtime.js';__RAX_RUNTIME_v1__.initialize(${config});await import(${JSON.stringify(encodeURL(entry.href, url))});`;
+    } else { const entry=new URL(url);entry.search+=`${entry.search?'&':'?'}__rax_worker=body`;code=`globalThis.__RAX_CONFIG__=${config};importScripts('/worker-runtime.js');importScripts(${JSON.stringify(encodeURL(entry.href,url))});`; }
   }
   return { code, warnings: [] };
 }

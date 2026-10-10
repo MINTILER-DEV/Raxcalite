@@ -1,4 +1,4 @@
-import { map, unmap, baseURL, report } from '../core/context';
+import { runtime, map, unmap, baseURL, report } from '../core/context';
 import { rewriteStyle, installCSS } from './css';
 import parseSrcset from 'parse-srcset';
 const urls = new Set(['href', 'src', 'action', 'formaction', 'poster', 'data', 'background', 'xlink:href']);
@@ -86,7 +86,7 @@ export function installDOM() {
     const original = document[key].bind(document);
     document[key] = (...values: string[]) => {
       const template = document.createElement('template'); template.innerHTML = values.join('');
-      for (const script of template.content.querySelectorAll('script:not([src])')) if (!script.getAttribute('type') || script.getAttribute('type') === 'module') script.textContent = globalThis.__rax.rewriteScript(script.textContent);
+      for (const script of template.content.querySelectorAll('script:not([src])')) if (!script.getAttribute('type') || script.getAttribute('type') === 'module') script.textContent = runtime.rewriteScript(script.textContent);
       original(template.innerHTML);
     };
   }
@@ -104,5 +104,5 @@ export function installDOM() {
     for (const record of records) for (const node of record.addedNodes) fixTree(node);
   }).observe(document.documentElement, { childList: true, subtree: true });
   // Dynamic style and srcset strings need parsing; server rewrites authored CSS and srcset.
-  globalThis.__rax.base = baseURL;
+  runtime.base = baseURL;
 }

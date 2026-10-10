@@ -98,12 +98,23 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         .query_pairs()
         .find(|(key, _)| key == "__rax_worker")
         .map(|(_, value)| value.into_owned());
-    if worker_marker.is_some() {
+    let source_marker = target
+        .query_pairs()
+        .find(|(k, _)| k == "__rax_origin")
+        .and_then(|(_, v)| Url::parse(&v).ok());
+    let credentials_marker = target
+        .query_pairs()
+        .find(|(k, _)| k == "__rax_credentials")
+        .map(|(_, v)| v.into_owned());
+    if worker_marker.is_some() || source_marker.is_some() || credentials_marker.is_some() {
         let remaining = target
             .query()
             .unwrap_or("")
             .split('&')
-            .filter(|pair| pair.split('=').next() != Some("__rax_worker"))
+            .filter(|pair| {
+                !["__rax_worker", "__rax_origin", "__rax_credentials"]
+                    .contains(&pair.split('=').next().unwrap_or(""))
+            })
             .collect::<Vec<_>>()
             .join("&");
         target.set_query(if remaining.is_empty() {
@@ -178,7 +189,8 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             .headers
             .get("x-rax-origin")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| Url::parse(v).ok());
+            .and_then(|v| Url::parse(v).ok())
+            .or(source_marker);
         if isolation.is_some() {
             let source = crate::isolation::source(&parts.headers, &state.config, &current);
             if claimed
@@ -224,7 +236,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         .headers
         .get("x-rax-credentials")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("include");
+        .unwrap_or(credentials_marker.as_deref().unwrap_or("include"));
     let credentials = mode != "omit" && (mode != "same-origin" || same_origin);
     let request_mode = parts
         .headers
@@ -267,10 +279,21 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         {
             continue;
         }
-        if name_str == "authorization" && !same_origin {
+        if name_str == "authorization" {
             continue;
         }
         outgoing.insert(name.clone(), value.clone());
+    }
+    // Native gateway HTTP authentication is never forwarded. Explicit website
+    // Authorization uses a separate transport header and stays on its initial target origin.
+    if parts
+        .headers
+        .get("x-rax-auth-origin")
+        .and_then(|v| v.to_str().ok())
+        == Some(target.origin().ascii_serialization().as_str())
+        && let Some(value) = parts.headers.get("x-rax-authorization")
+    {
+        outgoing.insert(header::AUTHORIZATION, value.clone());
     }
     if let Some(referrer) = &referer
         && let Ok(value) = HeaderValue::from_str(&if referrer.origin() == target.origin() {

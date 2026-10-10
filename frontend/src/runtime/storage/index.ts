@@ -1,4 +1,4 @@
-import { currentURL, getter, report, config, map, native } from '../core/context';
+import { runtime, currentURL, getter, report, config, map, native } from '../core/context';
 export function installStorage() {
   const prefix = `rax:${new URL(currentURL()).origin}:`;
   if (!config.worker) {
@@ -27,7 +27,7 @@ export function installStorage() {
     window.addEventListener('storage', event => {
       if (event.key && !event.key.startsWith(prefix)) { event.stopImmediatePropagation(); return; }
       if (event.key) Object.defineProperty(event, 'key', { value: event.key.slice(prefix.length) });
-      if (event.url) Object.defineProperty(event, 'url', { value: globalThis.__rax.unmap(event.url) });
+      if (event.url) Object.defineProperty(event, 'url', { value: runtime.unmap(event.url) });
     }, true);
   }
   if (globalThis.indexedDB) {

@@ -38,6 +38,13 @@ export function startFixtures(port = 4040) {
       if(url.searchParams.get('cors')==='yes') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-methods','GET, POST, PUT, PATCH, DELETE');res.setHeader('access-control-allow-headers',req.headers['access-control-request-headers']||'content-type'); }
       res.end(JSON.stringify({method:req.method,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||'',query:url.search}));
     }
+    else if (url.pathname === '/shared-worker.js') { res.setHeader('content-type','text/javascript');res.end("onconnect=e=>{const port=e.ports[0];port.onmessage=()=>port.postMessage({url:location.href,name:'shared'});port.start()}"); }
+    else if (url.pathname === '/cross-redirect') { res.writeHead(302,{location:'http://127.0.0.1:4040/api/echo?cors=yes','access-control-allow-origin':req.headers.origin||'*','access-control-allow-credentials':'true'}).end(); }
+    else if (url.pathname === '/too-large-text') { res.setHeader('content-type','text/html');res.end('a'.repeat(5*1024*1024)); }
+    else if (url.pathname === '/too-large-binary') { res.writeHead(200,{'content-type':'application/octet-stream','content-length':129*1024*1024});res.end(); }
+    else if (url.pathname === '/download') { res.setHeader('content-type','application/octet-stream');res.setHeader('content-disposition','attachment; filename="fixture.bin"');res.end(Buffer.from([0,1,2,255])); }
+    else if (url.pathname === '/audio.wav') { const wav=Buffer.alloc(44+1600);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(1600,40);res.setHeader('content-type','audio/wav');res.end(wav); }
+    else if (url.pathname === '/reconnect') { res.writeHead(200,{'content-type':'text/event-stream'});res.end(`retry: 25\nid: ${Number(req.headers['last-event-id']||0)+1}\ndata: reconnect\n\n`); }
     else if (url.pathname === '/site-worker.js') { res.setHeader('content-type','text/javascript');res.end("self.skipWaiting();addEventListener('activate',event=>event.waitUntil(clients.claim()));addEventListener('fetch',event=>{if(new URL(event.request.url).pathname==='/sw-resource')event.respondWith(new Response('worker-response'));});"); }
     else if (url.pathname === '/generated') { res.setHeader('content-type','text/html');res.end(`<title>Generated scripts</title><script>
       const __rax='author';const {location:aliased}=window;
@@ -63,7 +70,7 @@ export function startFixtures(port = 4040) {
     else { res.setHeader('content-type','text/html'); res.end(html); }
   });
   const ws = new WebSocketServer({ server, path:'/socket', handleProtocols: protocols => protocols.has('echo') ? 'echo' : false });
-  ws.on('connection',socket=>socket.on('message',(data,binary)=>socket.send(data,{binary})));
+  ws.on('connection',socket=>{socket.on('message',(data,binary)=>data.toString()==='close-me'?socket.close(4001,'fixture-close'):socket.send(data,{binary}));socket.ping('control');socket.on('pong',data=>{if(data.toString()==='control')socket.controlVerified=true;});});
   server.listen(port,'0.0.0.0',()=>console.log(`Raxcalite fixtures: ${port}`)); return server;
 }
 if(process.argv[1]?.endsWith('server.mjs')) startFixtures();

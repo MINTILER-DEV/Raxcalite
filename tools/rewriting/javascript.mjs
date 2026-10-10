@@ -5,14 +5,15 @@ import * as t from '@babel/types';
 import { encodeURL } from '../../shared/url.mjs';
 const traverse = traverseModule.default || traverseModule;
 const generate = generatorModule.default || generatorModule;
-const runtime = key => t.memberExpression(t.memberExpression(t.identifier('globalThis'), t.identifier('__rax')), t.identifier(key));
+const runtime = key => t.memberExpression(t.identifier('__RAX_RUNTIME_v1__'), t.identifier(key));
 
 export function rewriteJS(source, url, options = {}) {
   const ast = parse(source, { sourceType: 'unambiguous', allowReturnOutsideFunction: !!options.inlineHandler,
     plugins: ['importAttributes'], createImportExpressions: true });
   let changed = false;
-  // Runtime references must not resolve to an author's local globalThis binding.
-  traverse(ast, { Scope(path) { if (path.scope.hasOwnBinding('globalThis')) path.scope.rename('globalThis', path.scope.generateUid('globalThis')); } });
+  // Keep ordinary globalThis/__rax bindings intact. Only the reserved runtime
+  // identifier is renamed if an author happens to declare that exact name.
+  traverse(ast, { Scope(path) { if (path.scope.hasOwnBinding('__RAX_RUNTIME_v1__')) path.scope.rename('__RAX_RUNTIME_v1__', path.scope.generateUid('runtime')); } });
   const bound = (path, name) => path.scope.hasBinding(name, true) || options.shadowedNames?.includes(name);
   const map = value => /^(?:[./]|[a-z][a-z\d+.-]*:)/i.test(value) ? encodeURL(value, url) : value;
   traverse(ast, {
@@ -22,7 +23,7 @@ export function rewriteJS(source, url, options = {}) {
         path.node.arguments[0] = t.callExpression(runtime('rewriteScript'), [path.node.arguments[0], t.arrayExpression(Object.keys(path.scope.getAllBindings()).map(n => t.stringLiteral(n)))]); changed = true;
       }
       const prop = t.isMemberExpression(callee) ? callee.computed && t.isStringLiteral(callee.property) ? callee.property.value : !callee.computed && t.isIdentifier(callee.property) ? callee.property.name : '' : '';
-      if (prop === 'postMessage' && !(t.isMemberExpression(callee.object) && t.isIdentifier(callee.object.property, {name:'__rax'}))) {
+      if (prop === 'postMessage' && !t.isIdentifier(callee.object,{name:'__RAX_RUNTIME_v1__'})) {
         path.replaceWith(t.callExpression(runtime('postMessage'), [callee.object, ...path.node.arguments])); changed = true;
       }
       if (t.isMemberExpression(callee) && t.isIdentifier(callee.object, { name: 'Reflect' }) && !bound(path, 'Reflect') && ['get', 'set'].includes(callee.property.name) && t.isStringLiteral(path.node.arguments[1], { value: 'location' })) {

@@ -1,15 +1,15 @@
 import { rewriteJS, rewriteFunction } from '../../../../tools/rewriting/javascript.mjs';
-import { currentURL, report, root } from '../core/context';
+import { runtime, currentURL, report, root } from '../core/context';
 export function installScripts() {
   const rewrite = (source: unknown, shadowedNames: string[] = []) => {
     if (typeof source !== 'string') return source;
     try { return rewriteJS(source, currentURL(), { shadowedNames, inlineHandler: true }).code; }
     catch { report('javascript', 'Generated script could not be transformed'); throw new SyntaxError('Generated script transformation failed'); }
   };
-  root.__rax.rewriteScript = rewrite;
-  root.__rax.locationObject = (object: any) => new Proxy(object, {
-    get(target, key) { return key === 'location' ? root.__rax.location : Reflect.get(target, key, target); },
-    set(target, key, value) { if (key === 'location') { root.__rax.location = value; return true; } return Reflect.set(target, key, value, target); }
+  runtime.rewriteScript = rewrite;
+  runtime.locationObject = (object: any) => object !== root && (typeof document === 'undefined' || object !== document) ? object : new Proxy(object, {
+    get(target, key) { return key === 'location' ? runtime.location : Reflect.get(target, key, target); },
+    set(target, key, value) { if (key === 'location') { runtime.location = value; return true; } return Reflect.set(target, key, value, target); }
   });
   const Constructor = globalThis.Function;
   globalThis.Function = new Proxy(Constructor, {

@@ -36,7 +36,7 @@ test('HTML5 parsing rewrites base, srcset, styles, script, forms and malformed s
   assert.deepEqual(result.warnings, []);
   assert.ok(result.code.indexOf('/runtime.js') < result.code.indexOf('location.href'));
   assert.match(result.code, /\/assets\/a.css/); assert.match(result.code, /\/assets\/a.png 1x/); assert.match(result.code, /\/submit/);
-  assert.match(result.code, /__rax.location.href/);
+  assert.match(result.code, /__RAX_RUNTIME_v1__.location.href/);
 });
 test('CSS parser rewrites imports, fonts, image-set, inline values and custom properties', () => {
   const code = rewriteCSS('@import "a.css";@font-face{font-family:A;src:url(a.woff)}a{--picture:url(a.png);background:image-set(url(a.png) 1x,url(b.png) 2x)}', 'https://example.com/dir/');
@@ -46,8 +46,8 @@ test('CSS parser rewrites imports, fonts, image-set, inline values and custom pr
 test('AST respects shadowing and transforms assignments, computed globals, imports and meta URL', () => {
   const source = 'const a=location.href;window["location"]="/a";function f(location){return location.href}import x from "./a.js";const b=import("./b.js");const u=import.meta.url;';
   const code = rewriteJS(source, 'https://example.com/dir/main.js').code;
-  assert.match(code, /__rax.location.href/); assert.match(code, /return location.href/);
-  assert.match(code, /__rax.location =/); assert.match(code, /\/dir\/a.js/); assert.match(code, /import\(globalThis.__rax.mapImport/);
+  assert.match(code, /__RAX_RUNTIME_v1__.location.href/); assert.match(code, /return location.href/);
+  assert.match(code, /__RAX_RUNTIME_v1__.location =/); assert.match(code, /\/dir\/a.js/); assert.match(code, /import\(__RAX_RUNTIME_v1__.mapImport/);
   assert.match(code, /https:\/\/example.com\/dir\/main.js/);
 });
 test('modern scripts and source maps preserve a debuggable AST', () => {
@@ -56,11 +56,11 @@ test('modern scripts and source maps preserve a debuggable AST', () => {
 });
 test('AST preserves helper collisions, destructured location, optional calls, argument order and direct eval scope', () => {
   const calls = []; const virtual = { href: 'https://example.com/virtual' };
-  const context = vm.createContext({ window: {location:{href:'physical'}}, __rax: { location: virtual,
+  const context = vm.createContext({ window: {location:{href:'physical'}}, __RAX_RUNTIME_v1__: { location: virtual,
     locationObject: object => new Proxy(object, {get: (target, key) => key === 'location' ? virtual : target[key]}),
     postMessage: (target, ...args) => { calls.push(args); },
     rewriteScript: (source, shadowedNames) => rewriteJS(source, 'https://example.com', {shadowedNames}).code } });
-  const source = `const __rax='author';const {location:alias}=window;var result=[alias.href,__rax];
+  const source = `var __rax='author';const {location:alias}=window;var result=[alias.href,__rax];
     function f(globalThis,location){return eval('location')};result.push(f('local','lexical'));
     let n=0;null?.postMessage(n++);window['postMessage'](location.href,'*');window?.postMessage(n++,'*');result.push(n);`;
   vm.runInContext(rewriteJS(source, 'https://example.com').code, context);

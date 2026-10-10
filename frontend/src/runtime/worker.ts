@@ -1,4 +1,4 @@
-import { root, config, setConfig, map, unmap, report, currentURL, type RuntimeConfig } from './core/context';
+import { runtime, root, config, setConfig, map, unmap, report, currentURL, type RuntimeConfig } from './core/context';
 import { installNetwork } from './network';
 import { installStorage } from './storage';
 import { installWorkers } from './workers';
@@ -11,10 +11,10 @@ function initialize(value: RuntimeConfig) {
     get(target, key) { const result = Reflect.get(target, key, target); return typeof result === 'function' ? result.bind(target) : result; },
     set() { throw new TypeError('Worker location is read-only'); }
   });
-  root.__rax = { initialize, map, unmap, report, currentURL, location,
+  Object.assign(runtime, { initialize, map, unmap, report, currentURL, location,
     mapImport: (input: string, base: string) => /^(?:[./]|[a-z][a-z\d+.-]*:)/i.test(input) ? map(input, base) : input,
-    postMessage: (target: any, ...args: any[]) => target.postMessage(...args) };
+    postMessage: (target: any, ...args: any[]) => target.postMessage(...args) });
   installNetwork(); installStorage(); installWorkers(); installScripts();
 }
-root.__rax = { initialize };
+runtime.initialize = initialize;
 if (root.__RAX_CONFIG__) initialize(root.__RAX_CONFIG__);
