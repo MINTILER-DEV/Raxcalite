@@ -67,6 +67,14 @@ pub fn authored_headers(outgoing: &HeaderMap, transport: &HeaderMap) -> HeaderMa
             headers.remove(name);
         }
     }
+    // WebKit's GStreamer loader requests ICY metadata itself. Page fetch/XHR
+    // cannot author an audio/video Sec-Fetch-Dest, and their ICY headers still preflight.
+    if transport
+        .get("sec-fetch-dest")
+        .is_some_and(|value| value == "audio" || value == "video")
+    {
+        headers.remove("icy-metadata");
+    }
     headers
 }
 pub fn unsafe_headers(headers: &HeaderMap) -> Vec<String> {
@@ -142,6 +150,21 @@ mod tests {
             unsafe_headers(&authored_headers(&outgoing, &transport)),
             vec!["cache-control", "pragma", "x-page-header"]
         );
+    }
+    #[test]
+    fn native_media_metadata_is_distinguished_from_script_headers() {
+        let mut outgoing = HeaderMap::new();
+        outgoing.insert("icy-metadata", "1".parse().unwrap());
+        let mut transport = HeaderMap::new();
+        transport.insert("sec-fetch-dest", "empty".parse().unwrap());
+        assert_eq!(
+            unsafe_headers(&authored_headers(&outgoing, &transport)),
+            vec!["icy-metadata"]
+        );
+        for destination in ["audio", "video"] {
+            transport.insert("sec-fetch-dest", destination.parse().unwrap());
+            assert!(unsafe_headers(&authored_headers(&outgoing, &transport)).is_empty());
+        }
     }
     #[test]
     fn wildcard_does_not_authorize_credentials() {
