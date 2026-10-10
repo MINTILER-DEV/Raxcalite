@@ -2,6 +2,21 @@ import { test, expect } from '@playwright/test';
 import { encodeURL } from '../../shared/url.mjs';
 const contentOrigin = 'http://localhost:3031';
 const proxy = (url: string) => encodeURL(url,url,contentOrigin);
+test('DOM insertion preserves authored strings, custom elements and adopted CSS; caches map Request keys', async ({ page }) => {
+  await page.goto(proxy('http://localhost:4040/next'));
+  const result = await page.evaluate(async () => {
+    const image = document.createElement('img'); image.setAttribute('src','/pixel.svg'); document.body.append(image);
+    const container=document.createElement('div');container.innerHTML='<img src="/pixel.svg">';document.body.append(container);
+    customElements.define('fixture-image',class extends HTMLElement { connectedCallback(){this.innerHTML='<img src="/pixel.svg">';} });document.body.append(document.createElement('fixture-image'));
+    const sheet=new CSSStyleSheet();sheet.replaceSync('body{background-image:url(/pixel.svg)}');document.adoptedStyleSheets=[sheet];
+    const cache=await caches.open('requests');await cache.put(new Request('/mapped-key?q=1'),new Response('stored'));
+    const hit=await cache.match('/mapped-key?q=1');const keys=await cache.keys();
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.className.baseVal='unchanged';
+    return { attribute:image.getAttribute('src'), property:image.src, htmlAttribute:container.firstElementChild!.getAttribute('src'), cache:await hit!.text(), key:keys[0].url, svg:svg.className.baseVal, css:sheet.cssRules[0].cssText };
+  });
+  expect(result).toMatchObject({attribute:'/pixel.svg',property:'http://localhost:4040/pixel.svg',htmlAttribute:'/pixel.svg',cache:'stored',key:'http://localhost:4040/mapped-key?q=1',svg:'unchanged'});
+  expect(result.css).toContain('/p/');await expect.poll(()=>page.locator('fixture-image img').evaluate((el:HTMLImageElement)=>el.naturalWidth)).toBe(10);
+});
 test('generated scripts, aliases and lexical eval observe the virtual environment', async ({page}) => {
   await page.goto(proxy('http://localhost:4040/generated'));
   await expect.poll(() => page.evaluate(() => (window as any).generated)).toEqual({ collision: 'author', alias: 'http://localhost:4040/generated', evalURL: 'http://localhost:4040/generated', functionURL: 'http://localhost:4040/generated', inlineURL: 'http://localhost:4040/generated', timerURL: 'http://localhost:4040/generated', lexical: 'local' });

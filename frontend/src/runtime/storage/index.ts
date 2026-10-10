@@ -1,4 +1,4 @@
-import { currentURL, getter, report, config } from '../core/context';
+import { currentURL, getter, report, config, map, native } from '../core/context';
 export function installStorage() {
   const prefix = `rax:${new URL(currentURL()).origin}:`;
   if (!config.worker) {
@@ -49,6 +49,18 @@ export function installStorage() {
       for (const key of await cache.keys()) { const hit = await (await cache.open(key)).match(request, options); if (hit) return hit; }
       return undefined;
     };
+    const requestURL = (request: RequestInfo | URL) => request instanceof native.Request ? request : map(String(request), currentURL());
+    for (const name of ['match', 'matchAll', 'delete', 'keys', 'add'] as const) {
+      const original = Cache.prototype[name];
+      (Cache.prototype as any)[name] = function(request?: RequestInfo | URL, ...args: any[]) { return Reflect.apply(original, this, [request === undefined ? undefined : requestURL(request), ...args]); };
+    }
+    const put = Cache.prototype.put; Cache.prototype.put = function(request, response) { return put.call(this, requestURL(request), response); };
+    const addAll = Cache.prototype.addAll; Cache.prototype.addAll = function(requests) { return addAll.call(this, Array.from(requests, requestURL)); };
   }
-  if (globalThis.BroadcastChannel) { const Channel = globalThis.BroadcastChannel; globalThis.BroadcastChannel = new Proxy(Channel, { construct(Target, args) { return Reflect.construct(Target, [prefix + String(args[0])]); } }); }
+  if (globalThis.BroadcastChannel) {
+    const Channel = globalThis.BroadcastChannel;
+    const name = Object.getOwnPropertyDescriptor(Channel.prototype, 'name');
+    if (name?.get) getter(Channel.prototype, 'name', function(this: BroadcastChannel) { const value = name.get!.call(this); return value.startsWith(prefix) ? value.slice(prefix.length) : value; });
+    globalThis.BroadcastChannel = new Proxy(Channel, { construct(Target, args) { return Reflect.construct(Target, [prefix + String(args[0])]); } });
+  }
 }
