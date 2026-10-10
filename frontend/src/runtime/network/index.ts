@@ -13,7 +13,7 @@ export function installNetwork() {
     headers.set('x-rax-credentials', original.credentials);
     headers.set('x-rax-mode', original.mode);
     if(headers.has('authorization')) { headers.set('x-rax-authorization',headers.get('authorization')!);headers.set('x-rax-auth-origin',new URL(original.url).origin);headers.delete('authorization'); }
-    if(headers.has('priority')) {headers.set('x-rax-priority',headers.get('priority')!);headers.delete('priority');}
+    for(const name of ['priority','cache-control','pragma']) if(headers.has(name)) {headers.set('x-rax-'+name,headers.get(name)!);headers.delete(name);}
     // Reconstructing a Request from its .body stream forces HTTP/2 streaming uploads in Chromium.
     // Buffer bounded uploads so normal form/text bodies work through an HTTP/1 local proxy too.
     let body: Uint8Array<ArrayBuffer> | undefined;
@@ -58,7 +58,7 @@ export function installNetwork() {
       set(value){credentialsDescriptor.set!.call(this,value);credentialModes.set(this,!!value);}
     });
     const set = native.XMLHttpRequest.prototype.setRequestHeader;
-    native.XMLHttpRequest.prototype.setRequestHeader = function(name,value) { if(name.toLowerCase()==='authorization') {set.call(this,'x-rax-auth-origin',new URL(targets.get(this)!).origin);set.call(this,'x-rax-authorization',value);} else set.call(this,name.toLowerCase()==='priority'?'x-rax-priority':name,value); };
+    native.XMLHttpRequest.prototype.setRequestHeader = function(name,value) { if(name.toLowerCase()==='authorization') {set.call(this,'x-rax-auth-origin',new URL(targets.get(this)!).origin);set.call(this,'x-rax-authorization',value);} else set.call(this,['priority','cache-control','pragma'].includes(name.toLowerCase())?'x-rax-'+name.toLowerCase():name,value); };
     const open = native.XMLHttpRequest.prototype.open as (this: XMLHttpRequest, method: string, url: string, async: boolean, username?: string | null, password?: string | null) => void;
     native.XMLHttpRequest.prototype.open = function(method: string, url: string | URL, async: boolean = true, username?: string | null, password?: string | null) {
       trace('network','XMLHttpRequest URL and origin metadata mapped');

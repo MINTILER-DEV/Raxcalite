@@ -1,4 +1,7 @@
 import http from 'node:http';
+import {readFileSync} from 'node:fs';
+const video = readFileSync(new URL('./video.mp4', import.meta.url));
+// Four-second test pattern and tone: see video-fixture.md for the generation command.
 import { WebSocketServer } from 'ws';
 const html = `<!doctype html><title>Compatibility fixture</title><link rel="stylesheet" href="/style.css"><h1 id="title">Fixture</h1><a id="next" href="/next">Next page</a><form id="form" action="/form" method="post"><input name="value" value="posted"><button>Submit</button></form><img id="image" src="/pixel.svg"><div id="results"></div><script src="/app.js"></script>`;
 const script = `
@@ -54,6 +57,19 @@ export function startFixtures(port = 4040) {
     else if (url.pathname === '/too-large-text') { res.setHeader('content-type','text/html');res.end('a'.repeat(5*1024*1024)); }
     else if (url.pathname === '/too-large-binary') { res.writeHead(200,{'content-type':'application/octet-stream','content-length':129*1024*1024});res.end(); }
     else if (url.pathname === '/download') { res.setHeader('content-type','application/octet-stream');res.setHeader('content-disposition','attachment; filename="fixture.bin"');res.end(Buffer.from([0,1,2,255])); }
+    else if (url.pathname === '/stream.mp4') {
+      // Public media supports simple/range CORS requests, but no preflight headers.
+      res.setHeader('access-control-allow-origin', '*');
+      if (req.method === 'OPTIONS') { res.writeHead(405).end();return; }
+      res.setHeader('content-type','video/mp4');res.setHeader('accept-ranges','bytes');
+      res.setHeader('x-fixture-cookie',req.headers.cookie||'');
+      res.setHeader('access-control-expose-headers','content-range,x-fixture-cookie');
+      const match=/^bytes=(\d+)-(\d*)$/.exec(req.headers.range||'');
+      if(match){const start=Number(match[1]),end=match[2]?Math.min(Number(match[2]),video.length-1):video.length-1;
+        if(start>=video.length || end<start){res.writeHead(416,{'content-range':`bytes */${video.length}`}).end();return;}
+        res.writeHead(206,{'content-range':`bytes ${start}-${end}/${video.length}`,'content-length':end-start+1});res.end(video.subarray(start,end+1));
+      }else{res.setHeader('content-length',video.length);res.end(video);}
+    }
     else if (url.pathname === '/audio.wav') { const wav=Buffer.alloc(44+1600);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(1600,40);res.setHeader('content-type','audio/wav');res.end(wav); }
     else if (url.pathname === '/reconnect') { res.writeHead(200,{'content-type':'text/event-stream'});res.end(`retry: 25\nid: ${Number(req.headers['last-event-id']||0)+1}\ndata: reconnect\n\n`); }
     else if (url.pathname === '/site-worker.js') { res.setHeader('content-type','text/javascript');res.end("self.skipWaiting();addEventListener('activate',event=>event.waitUntil(clients.claim()));addEventListener('fetch',event=>{if(new URL(event.request.url).pathname==='/sw-resource')event.respondWith(new Response('worker-response'));});addEventListener('message',event=>event.waitUntil(clients.matchAll({includeUncontrolled:true,type:'window'}).then(values=>event.ports[0].postMessage(values.map(client=>client.url)))));"); }

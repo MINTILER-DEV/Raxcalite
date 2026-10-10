@@ -58,6 +58,17 @@ fn safelisted(name: &str, value: &[u8]) -> bool {
         _ => false,
     }
 }
+// Reloads and Request.cache can add these after the native API has checked the
+// author's header list. Explicit values travel separately so they still preflight.
+pub fn authored_headers(outgoing: &HeaderMap, transport: &HeaderMap) -> HeaderMap {
+    let mut headers = outgoing.clone();
+    for name in ["cache-control", "pragma"] {
+        if !transport.contains_key(format!("x-rax-{name}")) {
+            headers.remove(name);
+        }
+    }
+    headers
+}
 pub fn unsafe_headers(headers: &HeaderMap) -> Vec<String> {
     let mut unsafe_names = Vec::new();
     let mut possible = Vec::new();
@@ -114,6 +125,24 @@ pub fn preflight_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_cache_headers_do_not_preflight_but_authored_values_do() {
+        let mut outgoing = HeaderMap::new();
+        outgoing.insert("cache-control", "no-cache".parse().unwrap());
+        outgoing.insert("pragma", "no-cache".parse().unwrap());
+        outgoing.insert("x-page-header", "value".parse().unwrap());
+        let mut transport = HeaderMap::new();
+        assert_eq!(
+            unsafe_headers(&authored_headers(&outgoing, &transport)),
+            vec!["x-page-header"]
+        );
+        transport.insert("x-rax-cache-control", "no-cache".parse().unwrap());
+        transport.insert("x-rax-pragma", "no-cache".parse().unwrap());
+        assert_eq!(
+            unsafe_headers(&authored_headers(&outgoing, &transport)),
+            vec!["cache-control", "pragma", "x-page-header"]
+        );
+    }
     #[test]
     fn wildcard_does_not_authorize_credentials() {
         let mut headers = HeaderMap::new();

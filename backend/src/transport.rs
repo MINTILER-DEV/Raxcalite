@@ -142,7 +142,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                 .split(';')
                 .any(|pair| pair.trim().starts_with("rax_session="))
         });
-    // Native anonymous CORS loads (fonts, crossorigin scripts/styles/images)
+    // Native anonymous CORS loads (fonts, crossorigin scripts/styles/images/media)
     // omit the gateway cookie. Serve only public upstream bytes in this path.
     // The routing ID is not an authentication credential: this view has no jar,
     // cannot issue a gateway cookie, and cannot read or persist private state.
@@ -159,7 +159,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         && parts.headers.get("sec-fetch-dest").is_some_and(|v| {
             matches!(
                 v.to_str().unwrap_or(""),
-                "font" | "script" | "style" | "image"
+                "font" | "script" | "style" | "image" | "audio" | "video"
             )
         })
         && !parts
@@ -382,8 +382,10 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         }
         outgoing.insert(name.clone(), value.clone());
     }
-    if let Some(value) = parts.headers.get("x-rax-priority") {
-        outgoing.insert("priority", value.clone());
+    for name in ["priority", "cache-control", "pragma"] {
+        if let Some(value) = parts.headers.get(format!("x-rax-{name}")) {
+            outgoing.insert(name, value.clone());
+        }
     }
     // Native gateway HTTP authentication is never forwarded. Explicit website
     // Authorization uses a separate transport header and stays on its initial target origin.
@@ -478,7 +480,8 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         },
     );
     if let Some(origin) = &cors_origin {
-        let unsafe_headers = crate::cors::unsafe_headers(&outgoing);
+        let unsafe_headers =
+            crate::cors::unsafe_headers(&crate::cors::authored_headers(&outgoing, &parts.headers));
         if !["GET", "HEAD", "POST"].contains(&parts.method.as_str()) || !unsafe_headers.is_empty() {
             let preflight = state
                 .client
@@ -501,7 +504,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                     credentials,
                 )
             {
-                tracing::warn!(method=%parts.method, header_count=unsafe_headers.len(), "Virtual CORS preflight rejected");
+                tracing::warn!(method=%parts.method, headers=?unsafe_headers, "Virtual CORS preflight rejected");
                 return Err((
                     StatusCode::FORBIDDEN,
                     "Virtual CORS preflight rejected".into(),
