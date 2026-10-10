@@ -391,24 +391,14 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                 .send()
                 .await
                 .map_err(|_| fail("Virtual CORS preflight failed"))?;
-            let method_ok = preflight
-                .headers()
-                .get(header::ACCESS_CONTROL_ALLOW_METHODS)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.split(',').any(|m| m.trim() == parts.method.as_str()));
-            let allowed_headers = preflight
-                .headers()
-                .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            let headers_ok = unsafe_headers
-                .iter()
-                .all(|name| allowed_headers.split(',').any(|v| v.trim() == name));
             if !preflight.status().is_success()
                 || !crate::cors::allowed(preflight.headers(), origin, credentials)
-                || !method_ok
-                || !headers_ok
+                || !crate::cors::preflight_allowed(
+                    preflight.headers(),
+                    parts.method.as_str(),
+                    &unsafe_headers,
+                    credentials,
+                )
             {
                 return Err((
                     StatusCode::FORBIDDEN,

@@ -1,6 +1,14 @@
 import {test,expect} from '@playwright/test';
 import {encodeURL} from '../../shared/url.mjs';
 const proxy=(url:string)=>encodeURL(url,url,'http://localhost:3031');
+test('CORS preflights preserve wildcard restrictions and safelisted methods',async({page,browser})=>{
+  const compare=async(target:typeof page)=>target.evaluate(async()=>{
+    const request=(variant:string,init:RequestInit)=>fetch('http://127.0.0.1:4040/cors-policy?variant='+variant+'&case='+encodeURIComponent(JSON.stringify(init)),init).then(r=>r.text(),e=>e.name);
+    return [await request('named',{headers:{'x-fixture':'test'},credentials:'include'}),await request('wildcard',{method:'PATCH',headers:{'x-fixture':'test'},credentials:'omit'}),await request('wildcard',{method:'PATCH',headers:{'x-fixture':'test'},credentials:'include'}),await request('wildcard',{headers:{authorization:'Bearer fixture'},credentials:'omit'})];
+  });
+  const context=await browser.newContext();const direct=await context.newPage();await direct.goto('http://localhost:4040/next');const reference=await compare(direct);
+  await page.goto(proxy('http://localhost:4040/next'));const proxied=await compare(page);expect(proxied.slice(0,3)).toEqual(reference.slice(0,3));expect(proxied).toEqual(['cors-value','cors-value','TypeError','TypeError']);test.info().annotations.push({type:'native Authorization wildcard behavior',description:reference[3]});await context.close();
+});
 test('explicit Authorization survives CORS but is stripped across redirect origins; XHR headers are filtered',async({page})=>{
   await page.goto(proxy('http://localhost:4040/next'));
   const result=await page.evaluate(async()=>{

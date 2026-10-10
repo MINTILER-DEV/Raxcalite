@@ -28,6 +28,7 @@ export function startFixtures(port = 4040) {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     if (url.pathname === '/style.css') { res.setHeader('content-type','text/css'); res.end('h1{color:rgb(123,45,67)}body{background:#f6f6f9}#image{width:20px}'); }
     else if (url.pathname === '/app.js') { res.setHeader('content-type','text/javascript'); res.end(script); }
+    else if (url.pathname === '/import-map') { res.setHeader('content-type','text/html');res.end('<title>Import maps</title><script type="importmap">{"imports":{"fixture-package":"/module.js","/remapped.js":"/module.js"},"scopes":{"/":{"scoped-package":"/module.js"}}}</script><script type="module">import {value} from "fixture-package";import {value as remapped} from "/remapped.js";import {value as scoped} from "scoped-package";window.importMapResult={value,remapped,scoped,url:import.meta.url};</script>'); }
     else if (url.pathname === '/module.js') { res.setHeader('content-type','text/javascript'); res.end('export const value="module-value";export const url=import.meta.url;'); }
     else if (url.pathname === '/worker.js') { res.setHeader('content-type','text/javascript'); res.end('importScripts("/worker-import.js");fetch("/api/echo").then(r=>r.json()).then(r=>postMessage({value:"worker-value",method:r.method,imported:self.imported}));'); }
     else if (url.pathname === '/worker-import.js') { res.setHeader('content-type','text/javascript'); res.end('self.imported="imported-value";'); }
@@ -38,6 +39,7 @@ export function startFixtures(port = 4040) {
       if(url.searchParams.get('cors')==='yes') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-methods','GET, POST, PUT, PATCH, DELETE');res.setHeader('access-control-allow-headers',req.headers['access-control-request-headers']||'content-type'); }
       res.end(JSON.stringify({method:req.method,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||'',query:url.search}));
     }
+    else if (url.pathname === '/cors-policy') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-headers',url.searchParams.get('variant')==='named'?'x-fixture':'*');res.setHeader('access-control-allow-methods',url.searchParams.get('variant')==='named'?'GET':'*');res.end('cors-value'); }
     else if (url.pathname === '/shared-worker.js') { res.setHeader('content-type','text/javascript');res.end("onconnect=e=>{const port=e.ports[0];port.onmessage=()=>port.postMessage({url:location.href,name:'shared'});port.start()}"); }
     else if (url.pathname === '/cross-redirect') { res.writeHead(302,{location:'http://127.0.0.1:4040/api/echo?cors=yes','access-control-allow-origin':req.headers.origin||'*','access-control-allow-credentials':'true'}).end(); }
     else if (url.pathname === '/too-large-text') { res.setHeader('content-type','text/html');res.end('a'.repeat(5*1024*1024)); }

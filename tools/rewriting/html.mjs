@@ -59,7 +59,7 @@ export function rewriteHTML(source, url, options = {}) {
         for (const child of node.childNodes || []) if (child.nodeName === '#text') {
           const mapped = safe(() => {
             const data = JSON.parse(child.value);
-            const entries = values => Object.fromEntries(Object.entries(values).map(([k, v]) => [k, typeof v === 'string' ? encodeURL(v, base) : v]));
+            const entries = values => Object.fromEntries(Object.entries(values).map(([k, v]) => [/^(?:[./]|[a-z][a-z\d+.-]*:)/i.test(k) ? encodeURL(k, base) : k, typeof v === 'string' ? encodeURL(v, base) : v]));
             if (data.imports) data.imports = entries(data.imports);
             if (data.scopes) data.scopes = Object.fromEntries(Object.entries(data.scopes).map(([k, v]) => [encodeURL(k, base), entries(v)]));
             return JSON.stringify(data);

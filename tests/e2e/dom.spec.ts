@@ -1,5 +1,9 @@
 import {test,expect} from '@playwright/test';
 import {encodeURL} from '../../shared/url.mjs';
+test('import maps resolve bare, URL-shaped and scoped module keys',async({page,browser})=>{
+  const context=await browser.newContext();const direct=await context.newPage();await direct.goto('http://localhost:4040/import-map');await expect.poll(()=>direct.evaluate(()=>(window as any).importMapResult)).toBeTruthy();
+  await page.goto(encodeURL('http://localhost:4040/import-map','http://localhost:4040','http://localhost:3031'));await expect.poll(()=>page.evaluate(()=>(window as any).importMapResult)).toEqual(await direct.evaluate(()=>(window as any).importMapResult));await context.close();
+});
 test('DOM fragment parsing preserves table and SVG contexts, outerHTML and inert JSON',async({page,browser})=>{
   const exercise=async(target:typeof page)=>target.evaluate(()=>{
     const table=document.createElement('table');document.body.append(table);table.innerHTML='<tr><td><img id="cell-image" src="/pixel.svg"></td></tr>';
