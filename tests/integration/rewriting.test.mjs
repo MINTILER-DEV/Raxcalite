@@ -4,6 +4,14 @@ import { rewriteHTML } from '../../tools/rewriting/html.mjs';
 import { rewriteJS } from '../../tools/rewriting/javascript.mjs';
 import { rewriteCSS } from '../../tools/rewriting/css.mjs';
 import { encodeURL, decodeURL } from '../../shared/url.mjs';
+import { decodeText } from '../../tools/rewriting/encoding.mjs';
+test('text decoding respects BOM, HTTP charset, HTML meta and CSS charset', () => {
+  const legacy = Buffer.from('<meta charset=windows-1252><title>caf\xe9</title>', 'latin1');
+  assert.match(decodeText(legacy, 'html'), /café/);
+  assert.equal(decodeText(Buffer.from([0x80]), 'js', 'text/javascript; charset=ISO-8859-1'), '€');
+  assert.equal(decodeText(Buffer.from([0xff, 0xfe, 0x41, 0]), 'html'), 'A');
+  assert.match(decodeText(Buffer.from('@charset "windows-1252";/*caf\xe9*/', 'latin1'), 'css'), /café/);
+});
 test('canonical mapping handles origins, Unicode, escapes, queries, fragments and non-network schemes', () => {
   for (const url of ['https://example.com/a%20b?q=%2F#frag', 'http://example.com:8080/', 'https://bücher.de/a']) {
     assert.equal(decodeURL(encodeURL(url, url, 'http://localhost:3031')), new URL(url).href);

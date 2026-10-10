@@ -2,7 +2,9 @@ import { rewriteHTML } from './rewriting/html.mjs';
 import { rewriteCSS } from './rewriting/css.mjs';
 import { rewriteJS } from './rewriting/javascript.mjs';
 import { encodeURL } from '../shared/url.mjs';
-export function rewrite({ kind, source, url, debug, sourceMaps, worker }) {
+import { decodeText } from './rewriting/encoding.mjs';
+export function rewrite({ kind, source, url, debug, sourceMaps, worker, encoding }) {
+  if (encoding) source = decodeText(Buffer.from(source, 'base64'), kind, encoding);
   if (kind === 'html') return rewriteHTML(source, url, { debug, sourceMaps });
   if (kind === 'css') return { code: rewriteCSS(source, url), warnings: [] };
   const result = rewriteJS(source, url, { sourceMaps });

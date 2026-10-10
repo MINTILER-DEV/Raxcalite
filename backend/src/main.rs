@@ -93,7 +93,7 @@ async fn main() {
         .route("/metrics", get(operations::metrics))
         .route("/api/session/reset", post(transport::reset_session))
         .fallback_service(ServeDir::new("frontend/dist").append_index_html_on_directories(false))
-        .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
+        .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(cors)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

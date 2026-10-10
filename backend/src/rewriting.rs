@@ -6,6 +6,7 @@ pub struct Transform<'a> {
     pub cache: bool,
     pub kind: &'a str,
     pub source: &'a str,
+    pub encoding: &'a str,
     pub url: &'a str,
     pub debug: bool,
     #[serde(rename = "sourceMaps")]

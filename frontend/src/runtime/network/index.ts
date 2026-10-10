@@ -16,8 +16,19 @@ export function installNetwork() {
     headers.set('x-rax-mode', original.mode);
     // Reconstructing a Request from its .body stream forces HTTP/2 streaming uploads in Chromium.
     // Buffer bounded uploads so normal form/text bodies work through an HTTP/1 local proxy too.
-    let body: ArrayBuffer | undefined;
-    if (original.body) { body = await original.arrayBuffer(); if (body.byteLength > 8 * 1024 * 1024) throw new TypeError('Request body exceeds 8 MiB'); }
+    let body: Uint8Array<ArrayBuffer> | undefined;
+    if (original.body) {
+      const reader = original.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+      const cancel = () => { void reader.cancel(original.signal.reason); }; original.signal.addEventListener('abort', cancel, { once: true });
+      try {
+        while (true) {
+          original.signal.throwIfAborted(); const { value, done } = await reader.read(); if (done) break;
+          size += value.byteLength; if (size > 64 * 1024 * 1024) { await reader.cancel(); throw new TypeError('Request body exceeds 64 MiB'); } chunks.push(value);
+        }
+        original.signal.throwIfAborted(); body = new Uint8Array(size); let offset = 0;
+        for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+      } finally { original.signal.removeEventListener('abort', cancel); reader.releaseLock(); }
+    }
     const mapped = new native.Request(map(original.url), { method: original.method, headers, body,
       credentials: 'include', mode: 'same-origin', signal: original.signal, redirect: original.redirect,
       cache: original.cache, keepalive: original.keepalive, referrerPolicy: original.referrerPolicy });

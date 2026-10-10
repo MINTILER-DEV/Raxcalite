@@ -38,6 +38,8 @@ export function startFixtures(port = 4040) {
       if(url.searchParams.get('cors')==='yes') { res.setHeader('access-control-allow-origin',req.headers.origin||'*');res.setHeader('access-control-allow-credentials','true');res.setHeader('access-control-allow-methods','GET, POST, PUT, PATCH, DELETE');res.setHeader('access-control-allow-headers',req.headers['access-control-request-headers']||'content-type'); }
       res.end(JSON.stringify({method:req.method,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie||'',origin:req.headers.origin||'',authorization:req.headers.authorization||'',query:url.search}));
     }
+    else if (url.pathname === '/legacy') { res.setHeader('content-type','text/html; charset=windows-1252');res.end(Buffer.from('<title>caf\xe9</title><h1>caf\xe9</h1>', 'latin1')); }
+    else if (url.pathname === '/upload') { res.setHeader('content-type','application/json');res.end(JSON.stringify({bytes:Buffer.concat(chunks).length,type:req.headers['content-type'],last:Buffer.concat(chunks).subarray(-16).toString()})); }
     else if (url.pathname === '/slow') { setTimeout(()=>{res.setHeader('content-type','text/plain');res.end('slow')},500); }
     else if (url.pathname === '/range') { const match=/bytes=(\d+)-(\d+)/.exec(req.headers.range||'');res.setHeader('content-type','application/octet-stream');if(match){res.statusCode=206;res.setHeader('content-range',`bytes ${match[1]}-${match[2]}/256`);res.end(Buffer.from(Array.from({length:Number(match[2])-Number(match[1])+1},(_,i)=>Number(match[1])+i)))}else res.end(Buffer.from(Array.from({length:256},(_,i)=>i))); }
     else if (url.pathname === '/form') { res.setHeader('content-type','text/html');res.end(`<title>Form result</title><h1>${Buffer.concat(chunks).toString()}</h1>`); }

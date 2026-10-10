@@ -2,6 +2,20 @@ import { test, expect } from '@playwright/test';
 import { encodeURL } from '../../shared/url.mjs';
 const contentOrigin = 'http://localhost:3031';
 const proxy = (url: string) => encodeURL(url,url,contentOrigin);
+test('charset decoding, multipart and large streamed backend uploads, readiness and Host validation', async ({ page, request }) => {
+  await page.goto(proxy('http://localhost:4040/legacy')); await expect(page.locator('h1')).toHaveText('café');
+  const uploaded = await page.evaluate(async () => {
+    const form = new FormData(); form.append('file', new Blob(['multipart-value']), 'fixture.txt');
+    const multipart = await (await fetch('/upload', { method: 'POST', body: form })).json();
+    const large = await (await fetch('/upload', { method: 'PUT', body: new Uint8Array(9 * 1024 * 1024) })).json();
+    return { multipart, large };
+  });
+  expect(uploaded.multipart.type).toContain('multipart/form-data; boundary='); expect(uploaded.multipart.bytes).toBeGreaterThan(100);
+  expect(uploaded.large.bytes).toBe(9 * 1024 * 1024);
+  expect((await request.get(`${contentOrigin}/ready`)).status()).toBe(200);
+  expect((await request.get(`${contentOrigin}/health`, { headers: { host: 'attacker.example:3031' } })).status()).toBe(421);
+  expect((await request.get(`${contentOrigin}/metrics`)).status()).toBe(403);
+});
 test('browser chrome is compact, collapses, opens tabs and navigates', async ({ page }) => {
   await page.goto('http://localhost:3030');
   expect(await page.locator('.chrome').evaluate(el=>el.getBoundingClientRect().height)).toBeLessThan(100);

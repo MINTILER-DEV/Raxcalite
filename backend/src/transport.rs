@@ -5,11 +5,12 @@ use crate::{
 };
 use axum::{
     Json,
-    body::{Body, to_bytes},
+    body::Body,
     extract::{Query, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use url::Url;
@@ -216,20 +217,42 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             );
         }
     }
-    let body = tokio::time::timeout(state.config.timeout, to_bytes(body, 8 * 1024 * 1024))
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::REQUEST_TIMEOUT,
-                "Request body read timed out".into(),
-            )
-        })?
-        .map_err(|_| {
-            (
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "Request body exceeds 8 MiB".into(),
-            )
-        })?;
+    if parts
+        .headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .is_some_and(|n| n > 64 * 1024 * 1024)
+    {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Request body exceeds 64 MiB".into(),
+        ));
+    }
+    let deadline = tokio::time::Instant::now() + state.config.timeout;
+    let upload = futures_util::stream::unfold(
+        (body.into_data_stream(), 0usize),
+        move |(mut stream, mut size)| async move {
+            match tokio::time::timeout_at(deadline, stream.next()).await {
+                Ok(Some(Ok(chunk))) => {
+                    size += chunk.len();
+                    if size > 64 * 1024 * 1024 {
+                        Some((
+                            Err(std::io::Error::other("Upload limit exceeded")),
+                            (stream, size),
+                        ))
+                    } else {
+                        Some((Ok(chunk), (stream, size)))
+                    }
+                }
+                Ok(None) => None,
+                _ => Some((
+                    Err(std::io::Error::other("Upload failed or timed out")),
+                    (stream, size),
+                )),
+            }
+        },
+    );
     if let Some(origin) = &cors_origin {
         let unsafe_headers = crate::cors::unsafe_headers(&outgoing);
         if !["GET", "HEAD", "POST"].contains(&parts.method.as_str()) || !unsafe_headers.is_empty() {
@@ -278,7 +301,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
         .client
         .request(parts.method.clone(), target.clone())
         .headers(outgoing)
-        .body(body)
+        .body(reqwest::Body::wrap_stream(upload))
         .send()
         .await
         .map_err(|e| {
@@ -442,8 +465,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
             }
             bytes.extend_from_slice(&chunk);
         }
-        let text = String::from_utf8(bytes)
-            .map_err(|_| fail("Text response is not UTF-8; this encoding is unsupported"))?;
+        let text = STANDARD.encode(bytes);
         let worker_kind = match worker_marker.as_deref() {
             Some("module") => Some("module"),
             Some("classic") => Some("classic"),
@@ -460,6 +482,7 @@ async fn do_proxy(state: AppState, request: Request) -> Result<Response, (Status
                 cache: cacheable_request && !upstream_headers.contains_key(header::SET_COOKIE),
                 kind: kind.unwrap(),
                 source: &text,
+                encoding: &content_type,
                 url: target.as_str(),
                 debug: std::env::var("RAX_DEBUG").is_ok_and(|value| value == "1"),
                 source_maps: std::env::var("RAX_SOURCE_MAPS").is_ok_and(|value| value == "1"),
